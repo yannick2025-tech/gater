@@ -3,6 +3,7 @@ package types
 // Protocol 协议接口 - 定义一个充电协议的核心能力
 // 不同的充电协议实现此接口即可接入系统
 type Protocol interface {
+
 	// Name 协议名称
 	Name() string
 	// Version 协议版本
@@ -27,9 +28,9 @@ type FrameConfig struct {
 
 // CryptoConfig 加密配置
 type CryptoConfig struct {
-	Algorithm          string // 加密算法
-	FixedKeyHex        string // 固定密钥（十六进制字符串）
-	IVRule             string // IV规则
+	Algorithm          string // 加密算法: "AES256-CBC-PKCS7"
+	FixedKey           string // 固定密钥（32字符ASCII字符串，每个字符ASCII码作为一字节）
+	IVRule             string // IV规则: "last_16_bytes_of_key" 取KEY后16字符
 	ZeroLengthNoEncrypt bool   // 数据域长度为0时不加密
 }
 

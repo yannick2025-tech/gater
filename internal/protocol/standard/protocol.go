@@ -19,7 +19,7 @@ func New() *StandardProtocol {
 		frameConfig: types.NewDefaultFrameConfig(),
 		cryptoConfig: types.CryptoConfig{
 			Algorithm:          "AES256-CBC-PKCS7",
-			FixedKeyHex:        "4845727543536D5570716A3843596451",
+			FixedKey:           "4845727543536D5570716A3843596451",
 			IVRule:             "last_16_bytes_of_key",
 			ZeroLengthNoEncrypt: true,
 		},
