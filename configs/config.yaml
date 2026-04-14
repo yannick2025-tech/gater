@@ -1,0 +1,35 @@
+# nts-gater 主配置文件
+
+server:
+  host: "0.0.0.0"
+  port: 8888
+  http_port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+  heartbeat_timeout: 3m
+
+log:
+  level: "info"
+  filename: ""
+  max_size: 200
+  max_backups: 20
+  max_age: 30
+  compress: true
+
+database:
+  driver: "mysql"
+  dsn: "root:123456@tcp(127.0.0.1:3306)/nts_gater?charset=utf8mb4&parseTime=True&loc=Local"
+  max_open_conns: 100
+  max_idle_conns: 10
+  conn_max_lifetime: 1h
+  show_sql: false
+  log_level: "warn"
+
+protocol:
+  name: "standard"
+  version: "06"
+  fixed_key: "4845727543536D5570716A3843596451"
+  heartbeat_cycle: 30       # 心跳上报周期(秒)
+  time_sync_cycle: 60       # 对时周期(分钟)
+  charging_data_cycle: 30   # 充电数据上报周期(秒)
+  bms_data_cycle: 30        # BMS数据上报周期(秒)

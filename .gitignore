@@ -1,0 +1,51 @@
+# Binaries
+/nts-gater
+/cmd/server/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+*.prof
+coverage.txt
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Build output
+/bin/
+/dist/
+/output/
+
+# Vendor (uncomment if using vendor mode)
+# /vendor/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Data & reports (runtime generated)
+/data/
+
+# Docs (not tracked)
+/docs/
+
+# Local config overrides
+configs/config.local.yaml
+
+# Log files
+*.log
