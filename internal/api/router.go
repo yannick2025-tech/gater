@@ -8,17 +8,19 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/yannick2025-tech/nts-gater/internal/report"
+	"github.com/yannick2025-tech/nts-gater/internal/scenario"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
 )
 
 // Router HTTP路由
 type Router struct {
-	sessMgr *session.SessionManager
+	sessMgr        *session.SessionManager
+	scenarioEngine *scenario.Engine
 }
 
 // NewRouter 创建路由
-func NewRouter(sessMgr *session.SessionManager) *Router {
-	return &Router{sessMgr: sessMgr}
+func NewRouter(sessMgr *session.SessionManager, scenarioEngine *scenario.Engine) *Router {
+	return &Router{sessMgr: sessMgr, scenarioEngine: scenarioEngine}
 }
 
 // Setup 设置路由
@@ -37,6 +39,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 		api.GET("/test/detail/:sessionId", r.getTestDetail)
 		api.POST("/test/decode", r.decodeMessage)
 		api.POST("/test/export", r.exportReport)
+		api.GET("/test/download", r.downloadPDF)
 	}
 }
 
@@ -168,11 +171,12 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 
 // startTest 开始测试
 // POST /api/test/start
-// Body: {"testCase":"basic","balance":"100.00","stopCode":"1234",...}
+// Body: {"testCase":"basic_charging","gunNumber":"5023001201","params":{...}}
 func (r *Router) startTest(c *gin.Context) {
 	var req struct {
-		TestCase string `json:"testCase"`
-		GunNumber string `json:"gunNumber"`
+		TestCase  string                 `json:"testCase"`
+		GunNumber string                 `json:"gunNumber"`
+		Params    map[string]interface{} `json:"params"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
@@ -187,16 +191,22 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
-	// TODO: M2.2 测试场景引擎 - 根据testCase启动对应场景
-	// 当前只记录测试开始
-	_ = sess
+	// 启动测试场景
+	sc, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
 
+	result := sc.Result()
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
 			"sessionId": sess.ID,
-			"status":    "running",
+			"status":    string(result.State),
 			"testCase":  req.TestCase,
+			"progress":  result.Progress,
+			"stepName":  result.StepName,
 		},
 	})
 }
@@ -212,9 +222,20 @@ func (r *Router) getTestStatus(c *gin.Context) {
 		return
 	}
 
-	status := "completed"
-	if sess.Recorder != nil && sess.Recorder.EndTime().IsZero() {
-		status = "running"
+	status := "connected"
+	progress := 0
+	stepName := ""
+	testCase := ""
+
+	// 检查是否有运行中的场景
+	if sc, ok := r.scenarioEngine.GetScenario(sessionID); ok {
+		result := sc.Result()
+		status = string(result.State)
+		progress = result.Progress
+		stepName = result.StepName
+		testCase = result.ScenarioName
+	} else if sess.Recorder != nil && sess.Recorder.EndTime().IsZero() {
+		status = "connected"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -222,7 +243,9 @@ func (r *Router) getTestStatus(c *gin.Context) {
 		"data": gin.H{
 			"sessionId": sessionID,
 			"status":    status,
-			"progress":  0, // TODO: 根据测试场景计算进度
+			"progress":  progress,
+			"stepName":  stepName,
+			"testCase":  testCase,
 		},
 	})
 }
@@ -326,12 +349,52 @@ func (r *Router) exportReport(c *gin.Context) {
 		return
 	}
 
-	// TODO: M2.5 PDF生成
+	// 获取测试报告
+	testReport, err := report.GetTestReportBySessionID(req.SessionID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
+		return
+	}
+
+	// 获取功能码统计
+	stats, _ := report.GetFuncCodeStatsBySessionID(req.SessionID)
+
+	// 获取消息存档
+	archives, _ := report.GetMessageArchivesBySessionID(req.SessionID, "", "")
+
+	// 生成PDF
+	pdfPath, err := report.GeneratePDF(testReport, stats, archives)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate pdf failed: " + err.Error()})
+		return
+	}
+
+	// 更新报告中的PDF路径
+	_ = report.UpdateReportPDFPath(req.SessionID, pdfPath)
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
 			"sessionId": req.SessionID,
-			"pdfUrl":    "",
+			"pdfUrl":    "/api/test/download?path=" + pdfPath,
+			"pdfPath":   pdfPath,
 		},
 	})
+}
+
+// downloadPDF 下载PDF文件
+// GET /api/test/download?path=reports/report_xxx.pdf
+func (r *Router) downloadPDF(c *gin.Context) {
+	path := c.Query("path")
+	if path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "path is required"})
+		return
+	}
+
+	// 安全检查：防止路径遍历攻击
+	if len(path) > 0 && path[0] == '/' {
+		path = path[1:]
+	}
+
+	c.File(path)
 }

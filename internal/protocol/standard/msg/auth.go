@@ -1,3 +1,4 @@
+// Package msg 定义了接入认证和秘钥更新相关的消息结构体和编解码逻辑
 package msg
 
 import (
@@ -14,6 +15,7 @@ type Auth0AUpload struct {
 func (m *Auth0AUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncAuthRandom, types.DirectionUpload, "access_auth_random_upload", true, true)
 }
+
 func (m *Auth0AUpload) Decode(data []byte) error {
 	if len(data) < 1 {
 		return errInsufficientData(1, len(data))
@@ -24,6 +26,7 @@ func (m *Auth0AUpload) Decode(data []byte) error {
 func (m *Auth0AUpload) Encode() ([]byte, error) {
 	return []byte{m.B0x00}, nil
 }
+
 func (m *Auth0AUpload) Validate() []types.ValidationError {
 	var errs []types.ValidationError
 	if m.B0x00 != 0x00 {
@@ -68,41 +71,57 @@ func (m *Auth0AReply) ToJSONMap() map[string]interface{} {
 
 // Auth0BUpload 充电桩上报0x0B
 type Auth0BUpload struct {
-	Md5Sum          []byte `json:"md5Sum"`          // 16字节
-	FirmwareType    uint16 `json:"firmwareType"`    // 固件类型号
-	FirmwareVersion uint16 `json:"firmwareVersion"` // 固件版本号
-	Sim             string `json:"sim"`             // BCD[13] SIM卡号
-	ConfigVersion   string `json:"configVersion"`   // ASCII[32] 配置版本
+	Md5Sum           []byte `json:"md5Sum"`           // 16字节
+	FirmwareType     uint16 `json:"firmwareType"`     // 固件类型号
+	FirmwareVersion  uint16 `json:"firmwareVersion"`  // 固件版本号
+	Sim              string `json:"sim"`              // BCD[13] SIM卡号
+	ConfigVersion    string `json:"configVersion"`    // ASCII[32] 配置版本
 	FaultCodeVersion uint16 `json:"faultCodeVersion"` // 故障码版本
 }
 
 func (m *Auth0BUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncAuthEncrypted, types.DirectionUpload, "access_auth_encrypted_upload", true, true)
 }
+
 func (m *Auth0BUpload) Decode(data []byte) error {
 	off := 0
 	var err error
 	m.Md5Sum, off, err = ReadBytes(data, off, 16)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	m.FirmwareType, off, err = ReadUint16LE(data, off)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	m.FirmwareVersion, off, err = ReadUint16LE(data, off)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	m.Sim, off, err = ReadBCD(data, off, 13)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	m.ConfigVersion, off, err = ReadASCII(data, off, 32)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	m.FaultCodeVersion, off, err = ReadUint16LE(data, off)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return nil
 }
+
 func (m *Auth0BUpload) Encode() ([]byte, error) {
 	buf := make([]byte, 16+2+2+13+32+2)
 	off := 0
-	copy(buf[off:], m.Md5Sum); off += 16
+	copy(buf[off:], m.Md5Sum)
+	off += 16
 	off = WriteUint16LE(buf, off, m.FirmwareType)
 	off = WriteUint16LE(buf, off, m.FirmwareVersion)
-	bcdOff, _ := WriteBCD(buf, off, m.Sim, 13); off = bcdOff
+	bcdOff, _ := WriteBCD(buf, off, m.Sim, 13)
+	off = bcdOff
 	off = WriteASCII(buf, off, m.ConfigVersion, 32)
 	off = WriteUint16LE(buf, off, m.FaultCodeVersion)
 	return buf[:off], nil
@@ -124,8 +143,8 @@ func (m *Auth0BUpload) ToJSONMap() map[string]interface{} {
 
 // Auth0BReply 平台回复0x0B
 type Auth0BReply struct {
-	AuthStatus byte `json:"authStatus"` // 0成功 1失败
-	Time       []byte `json:"time"`     // 6字节 UTC时间
+	AuthStatus byte   `json:"authStatus"` // 0成功 1失败
+	Time       []byte `json:"time"`       // 6字节 UTC时间
 }
 
 func (m *Auth0BReply) Spec() types.MessageSpec {
@@ -192,8 +211,8 @@ func (m *KeyUpdateDownload) ToJSONMap() map[string]interface{} {
 
 // KeyUpdateReply 充电桩回复0x21
 type KeyUpdateReply struct {
-	NewAesKey         []byte `json:"newAesKey"`         // 16字节
-	SecretUpdateStatus byte  `json:"secretUpdateStatus"` // 0成功 1失败
+	NewAesKey          []byte `json:"newAesKey"`          // 16字节
+	SecretUpdateStatus byte   `json:"secretUpdateStatus"` // 0成功 1失败
 }
 
 func (m *KeyUpdateReply) Spec() types.MessageSpec {

@@ -7,8 +7,8 @@ type Direction int
 
 const (
 	DirectionUpload   Direction = iota // 充电桩→平台
-	DirectionDownload                   // 平台→充电桩
-	DirectionReply                      // 回复消息
+	DirectionDownload                  // 平台→充电桩
+	DirectionReply                     // 回复消息
 )
 
 // MessageSpec 消息规格 - 描述一个功能码某个方向的消息元数据
@@ -58,15 +58,16 @@ type MessageRegistry interface {
 }
 
 // MessageHeader 消息帧头（公共部分，不含数据域）
+// 当前主要以standard消息为主，后续如果有其他协议进来，可能需要扩展。
 type MessageHeader struct {
-	StartByte  byte   // 起始域 0x32
-	Version    byte   // 版本号
-	FuncCode   byte   // 功能码
-	PostNo     uint32 // 充电桩编号
-	Charger    byte   // 枪号
-	EncryptFlag byte  // 加密标志
-	Checksum   byte   // 校验码
-	DataLength uint16 // 数据域长度
+	StartByte   byte   // 起始域 0x32
+	Version     byte   // 版本号
+	FuncCode    byte   // 功能码
+	PostNo      uint32 // 充电桩编号
+	Charger     byte   // 枪号
+	EncryptFlag byte   // 加密标志
+	Checksum    byte   // 校验码
+	DataLength  uint16 // 数据域长度
 }
 
 // FullMessage 完整消息（帧头+消息体）
@@ -103,13 +104,13 @@ func DecodeHeader(data []byte) (MessageHeader, error) {
 		return MessageHeader{}, io.ErrUnexpectedEOF
 	}
 	return MessageHeader{
-		StartByte:  data[0],
-		Version:    data[1],
-		FuncCode:   data[2],
-		PostNo:     uint32(data[3]) | uint32(data[4])<<8 | uint32(data[5])<<16 | uint32(data[6])<<24,
-		Charger:    data[7],
+		StartByte:   data[0],
+		Version:     data[1],
+		FuncCode:    data[2],
+		PostNo:      uint32(data[3]) | uint32(data[4])<<8 | uint32(data[5])<<16 | uint32(data[6])<<24,
+		Charger:     data[7],
 		EncryptFlag: data[8],
-		Checksum:   data[9],
-		DataLength: uint16(data[10]) | uint16(data[11])<<8,
+		Checksum:    data[9],
+		DataLength:  uint16(data[10]) | uint16(data[11])<<8,
 	}, nil
 }

@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/gin-gonic/gin v1.12.0
+	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/yannick2025-tech/gwc-configor v0.0.0-20260116034342-7a1569e3b888
 	github.com/yannick2025-tech/gwc-errors v0.0.0-20260116084153-0900f6f60684
 	github.com/yannick2025-tech/gwc-logging v0.0.0-20260122140358-5aafbb23a080

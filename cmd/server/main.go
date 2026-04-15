@@ -19,6 +19,7 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
 	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 	"github.com/yannick2025-tech/nts-gater/internal/report"
+	"github.com/yannick2025-tech/nts-gater/internal/scenario"
 	"github.com/yannick2025-tech/nts-gater/internal/server"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
 	"github.com/yannick2025-tech/nts-gater/internal/validator"
@@ -55,18 +56,22 @@ func main() {
 
 	// TCP服务器
 	srv := server.New(cfg, proto, logger)
+
+	// 场景引擎（需在TCP回调之前创建，因为回调中引用它）
+	scenarioEngine := scenario.NewEngine(sessMgr, srv, proto, logger)
+
 	srv.OnMessage(func(conn *server.Connection, header types.MessageHeader, data []byte) {
-		onMessage(conn, header, data, proto, sessMgr, frameValidator, dp, logger)
+		onMessage(conn, header, data, proto, sessMgr, frameValidator, dp, scenarioEngine, logger)
 	})
 	srv.OnDisconnect(func(conn *server.Connection, postNo uint32) {
-		onDisconnect(conn, postNo, sessMgr, proto, logger)
+		onDisconnect(conn, postNo, sessMgr, proto, scenarioEngine, logger)
 	})
 
 	// HTTP服务器
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
 	engine.Use(corsMiddleware())
-	router := api.NewRouter(sessMgr)
+	router := api.NewRouter(sessMgr, scenarioEngine)
 	router.Setup(engine)
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.HTTPPort),
@@ -114,7 +119,7 @@ func corsMiddleware() gin.HandlerFunc {
 func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	proto types.Protocol, sessMgr *session.SessionManager,
 	frameValidator *validator.FrameValidator, dp *dispatcher.Dispatcher,
-	logger logging.Logger,
+	scenarioEngine *scenario.Engine, logger logging.Logger,
 ) {
 	// 1. 帧头校验
 	if verr := frameValidator.ValidateHeader(header); verr != nil {
@@ -224,6 +229,11 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			logger.Errorf("[%s] handle func=0x%02X error: %v", conn.ID, header.FuncCode, err)
 		}
 	}
+
+	// 通知场景引擎
+	if msg != nil && msgStatus == recorder.StatusSuccess {
+		scenarioEngine.OnMessage(sess.ID, header.FuncCode, dir, msg)
+	}
 }
 
 // directionOf 根据消息来源判断方向。
@@ -235,12 +245,15 @@ func directionOf(header types.MessageHeader) types.Direction {
 
 // onDisconnect 连接断开回调：关闭记录器、保存报告到数据库、移除会话
 func onDisconnect(conn *server.Connection, postNo uint32, sessMgr *session.SessionManager,
-	proto types.Protocol, logger logging.Logger,
+	proto types.Protocol, scenarioEngine *scenario.Engine, logger logging.Logger,
 ) {
 	sess, ok := sessMgr.GetByPostNo(postNo)
 	if !ok {
 		return
 	}
+
+	// 停止场景
+	scenarioEngine.RemoveScenario(sess.ID)
 
 	// 关闭记录器
 	if sess.Recorder != nil {
