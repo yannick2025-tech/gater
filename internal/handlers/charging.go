@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/yannick2025-tech/nts-gater/internal/dispatcher"
+	"github.com/yannick2025-tech/nts-gater/internal/generator"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
 	logging "github.com/yannick2025-tech/gwc-logging"
@@ -28,17 +29,38 @@ func (h *ChargingHandler) HandleChargerStartUpload(ctx *dispatcher.Context) erro
 	ctx.Logger.Infof("[charging] charger start request: postNo=%d deviceOrderNo=%s startupType=%d",
 		ctx.PostNo, startMsg.DeviceOrderNo, startMsg.StartupType)
 
-	// 构建回复：允许充电（errorCode=0表示成功）
-	// TODO: 接入业务系统后，根据实际业务逻辑判断是否允许充电
+	// 构建回复
+	limits := generator.DefaultChargingLimits()
+	billingRules := generator.GenerateBillingRules()
+
+	// 将 generator.FeeItem 转为 msg.FeeItem
+	msgFees := make([]msg.FeeItem, len(billingRules))
+	for i, f := range billingRules {
+		msgFees[i] = msg.FeeItem{
+			Hour:     f.Hour,
+			Min:      f.Min,
+			PowerFee: f.PowerFee,
+			SvcFee:   f.SvcFee,
+			Type:     f.Type,
+			LimitedP: f.LimitedP,
+		}
+	}
+
 	reply := &msg.ChargerStartReply{
-		ChargingOrderNumber:     startMsg.DeviceOrderNo,
-		ChargingPileOrderNumber: startMsg.DeviceOrderNo,
-		AccountBalance:          0,
-		ErrorCode:               0x00, // 成功
-		AuthenticationNumber:   startMsg.AuthenticationNumber,
-		FeeNum:                  0,
-		ListFee:                 nil,
-		StopCode:                "0000",
+		ChargingOrderNumber:         generator.GenerateOrderNo(),
+		ChargingPileOrderNumber:     startMsg.DeviceOrderNo,
+		AccountBalance:              50000, // 500.00元
+		LimitTheMaximumChargeCharge: limits.MaxChargeAmount,
+		LimitTheChargingTime:        limits.MaxChargeTime,
+		LimitTheAmountOfCharging:    limits.MaxChargeEnergy,
+		LimitChargingServiceFees:    5000,
+		LimitChargingCharges:        5000,
+		LimitSOC:                    limits.MaxSOC,
+		ErrorCode:                   0x00,
+		AuthenticationNumber:        startMsg.AuthenticationNumber,
+		FeeNum:                      byte(len(msgFees)),
+		ListFee:                     msgFees,
+		StopCode:                    generator.GenerateStopCode(),
 	}
 
 	return ctx.ReplyMessage(reply)
