@@ -1,3 +1,4 @@
+// Package standard provides message registration for the standard protocol.
 package standard
 
 import (

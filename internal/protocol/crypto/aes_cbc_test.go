@@ -1,3 +1,4 @@
+// Package crypto provides tests for AES-256-CBC encryption.
 package crypto
 
 import (

@@ -1,3 +1,4 @@
+// Package standard provides standard protocol enum definitions.
 package standard
 
 // ==================== 状态码 ====================

@@ -1,3 +1,4 @@
+// Package codec provides checksum calculation for protocol frames.
 package codec
 
 // CalcChecksum 计算校验和

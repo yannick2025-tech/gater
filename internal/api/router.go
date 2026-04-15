@@ -1,3 +1,4 @@
+// Package api provides HTTP API handlers for the web frontend.
 package api
 
 import (
@@ -40,6 +41,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 		api.POST("/test/decode", r.decodeMessage)
 		api.POST("/test/export", r.exportReport)
 		api.GET("/test/download", r.downloadPDF)
+		api.POST("/test/config", r.configDownload)
 	}
 }
 
@@ -89,6 +91,7 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 // toggleConnection 连接/断开设备
 // POST /api/device/connect
 // Body: {"gunNumber": "5023001201", "action": "connect"|"disconnect"}
+
 func (r *Router) toggleConnection(c *gin.Context) {
 	var req struct {
 		GunNumber string `json:"gunNumber"`
@@ -172,6 +175,7 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 // startTest 开始测试
 // POST /api/test/start
 // Body: {"testCase":"basic_charging","gunNumber":"5023001201","params":{...}}
+
 func (r *Router) startTest(c *gin.Context) {
 	var req struct {
 		TestCase  string                 `json:"testCase"`
@@ -319,6 +323,7 @@ func (r *Router) getTestDetail(c *gin.Context) {
 // decodeMessage 解码16进制报文
 // POST /api/test/decode
 // Body: {"hex": "320601..."}
+
 func (r *Router) decodeMessage(c *gin.Context) {
 	var req struct {
 		Hex string `json:"hex"`
@@ -340,6 +345,7 @@ func (r *Router) decodeMessage(c *gin.Context) {
 // exportReport 导出测试报告
 // POST /api/test/export
 // Body: {"sessionId": "sess-1"}
+
 func (r *Router) exportReport(c *gin.Context) {
 	var req struct {
 		SessionID string `json:"sessionId"`
@@ -397,4 +403,56 @@ func (r *Router) downloadPDF(c *gin.Context) {
 	}
 
 	c.File(path)
+}
+
+// configDownload 平台下发配置
+// POST /api/test/config
+// Body: {"gunNumber":"5023001201","items":[{"funcCode":194,"payload":{...}}]}
+// funcCode: 0xC2(194)=配置下发, 0x22(34)=计费规则, 0x0C(12)=设备参数查询
+func (r *Router) configDownload(c *gin.Context) {
+	var req struct {
+		GunNumber string                `json:"gunNumber"`
+		Items     []scenario.ConfigItem `json:"items"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	if len(req.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "items is required"})
+		return
+	}
+
+	postNo, err := strconv.ParseUint(req.GunNumber, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
+		return
+	}
+
+	sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device not connected"})
+		return
+	}
+
+	// 启动配置下发场景
+	sc, err := r.scenarioEngine.StartConfigScenario(sess.ID, req.Items)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	result := sc.Result()
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"sessionId": sess.ID,
+			"status":    string(result.State),
+			"testCase":  "config_download",
+			"progress":  result.Progress,
+			"stepName":  result.StepName,
+			"stepTotal": result.StepTotal,
+		},
+	})
 }

@@ -1,3 +1,4 @@
+// Package database provides MySQL database initialization and connection management.
 package database
 
 import (

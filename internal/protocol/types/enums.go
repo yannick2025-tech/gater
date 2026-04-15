@@ -1,3 +1,4 @@
+// Package types provides protocol type constants and direction/funcCode name mappings.
 package types
 
 // FuncCode 功能码常量

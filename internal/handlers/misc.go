@@ -1,3 +1,4 @@
+// Package handlers provides miscellaneous business handlers (BMS, billing, config, upgrade).
 package handlers
 
 import (

@@ -1,3 +1,4 @@
+// Package errors provides business error code definitions.
 package errors
 
 import (
@@ -210,11 +211,4 @@ func init() {
 		ErrInternalError:    "internal error",
 	})
 }
-
-
-
-
-
-
-
 

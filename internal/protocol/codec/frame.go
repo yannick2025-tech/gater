@@ -1,3 +1,4 @@
+// Package codec provides frame encoding and decoding.
 package codec
 
 import (

@@ -1,3 +1,4 @@
+// Package report provides PDF test report generation.
 package report
 
 import (

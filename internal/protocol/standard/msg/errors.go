@@ -1,3 +1,4 @@
+// Package msg provides error definitions for message codec.
 package msg
 
 import "fmt"

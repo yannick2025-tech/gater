@@ -1,3 +1,4 @@
+// Package scenario provides the SFTP upgrade test scenario.
 package scenario
 
 import (

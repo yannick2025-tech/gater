@@ -1,3 +1,4 @@
+// Package report provides test report persistence and query services.
 package report
 
 import (

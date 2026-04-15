@@ -1,3 +1,4 @@
+// Package server provides TCP server for charging station connections.
 package server
 
 import (

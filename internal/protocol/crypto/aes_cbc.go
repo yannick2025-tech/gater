@@ -1,3 +1,4 @@
+// Package crypto provides AES-256-CBC encryption and decryption.
 package crypto
 
 import (

@@ -1,3 +1,4 @@
+// Package generator provides test data generation utilities for charging scenarios.
 package generator
 
 import (

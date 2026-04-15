@@ -1,3 +1,4 @@
+// Package validator provides frame and message validation.
 package validator
 
 import (

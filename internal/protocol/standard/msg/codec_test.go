@@ -1,3 +1,4 @@
+// Package msg provides tests for field codec utilities.
 package msg
 
 import (

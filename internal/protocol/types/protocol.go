@@ -1,3 +1,4 @@
+// Package types provides the Protocol interface and related type definitions.
 package types
 
 // Protocol 协议接口 - 定义一个充电协议的核心能力

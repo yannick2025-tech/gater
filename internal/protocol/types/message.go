@@ -1,3 +1,4 @@
+// Package types provides core message and message spec interfaces.
 package types
 
 import "io"

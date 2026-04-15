@@ -1,3 +1,4 @@
+// Package handlers provides tests for authentication handlers.
 package handlers
 
 import (

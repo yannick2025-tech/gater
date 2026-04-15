@@ -1,3 +1,4 @@
+// Package msg provides BCD/ASCII/BYTE field read/write utilities.
 package msg
 
 import (

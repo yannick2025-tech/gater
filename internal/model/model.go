@@ -1,3 +1,4 @@
+// Package model provides database models for test reports and message archives.
 package model
 
 import (

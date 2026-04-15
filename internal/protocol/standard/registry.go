@@ -1,3 +1,4 @@
+// Package standard provides the message registry implementation.
 package standard
 
 import (

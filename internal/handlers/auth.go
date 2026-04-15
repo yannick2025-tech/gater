@@ -1,3 +1,4 @@
+// Package handlers provides authentication, key update and basic business handlers.
 package handlers
 
 import (

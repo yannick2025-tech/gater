@@ -1,3 +1,4 @@
+// Package codec provides TCP stream scanning and frame extraction.
 package codec
 
 import (

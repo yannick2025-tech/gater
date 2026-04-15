@@ -1,3 +1,4 @@
+// Package msg provides charging message definitions (0x03-0x08).
 package msg
 
 import (
@@ -63,12 +64,14 @@ type PlatformStartDownload struct {
 func (m *PlatformStartDownload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncPlatformStart, types.DirectionDownload, "platform_start_download", false, false)
 }
+
 func (m *PlatformStartDownload) Decode(data []byte) error {
 	off := 0
 	m.StartupType, off, _ = ReadByte(data, off)
 	m.AuthenticationNumber, off, _ = ReadASCII(data, off, 50)
 	return nil
 }
+
 func (m *PlatformStartDownload) Encode() ([]byte, error) {
 	buf := make([]byte, 1+50)
 	off := 0
@@ -76,6 +79,7 @@ func (m *PlatformStartDownload) Encode() ([]byte, error) {
 	off = WriteASCII(buf, off, m.AuthenticationNumber, 50)
 	return buf[:off], nil
 }
+
 func (m *PlatformStartDownload) Validate() []types.ValidationError {
 	var errs []types.ValidationError
 	if _, ok := StartupTypes[m.StartupType]; !ok {
@@ -83,6 +87,7 @@ func (m *PlatformStartDownload) Validate() []types.ValidationError {
 	}
 	return errs
 }
+
 func (m *PlatformStartDownload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"startupType": m.StartupType, "authenticationNumber": m.AuthenticationNumber}
 }
@@ -102,6 +107,7 @@ type ChargerStartUpload struct {
 func (m *ChargerStartUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncChargerStart, types.DirectionUpload, "charger_start_upload", false, true)
 }
+
 func (m *ChargerStartUpload) Decode(data []byte) error {
 	off := 0
 	m.DeviceOrderNo, off, _ = ReadBCD(data, off, 10)
@@ -112,6 +118,7 @@ func (m *ChargerStartUpload) Decode(data []byte) error {
 	m.Time, off, _ = ReadBCD(data, off, 7)
 	return nil
 }
+
 func (m *ChargerStartUpload) Encode() ([]byte, error) {
 	buf := make([]byte, 10+1+5+1+50+7)
 	off := 0
@@ -123,7 +130,9 @@ func (m *ChargerStartUpload) Encode() ([]byte, error) {
 	off, _ = WriteBCD(buf, off, m.Time, 7)
 	return buf[:off], nil
 }
+
 func (m *ChargerStartUpload) Validate() []types.ValidationError { return nil }
+
 func (m *ChargerStartUpload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{
 		"deviceOrderNo": m.DeviceOrderNo, "startupType": m.StartupType,
@@ -155,6 +164,7 @@ type ChargerStartReply struct {
 func (m *ChargerStartReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncChargerStart, types.DirectionReply, "charger_start_reply", false, false)
 }
+
 func (m *ChargerStartReply) Decode(data []byte) error {
 	off := 0
 	m.ChargingOrderNumber, off, _ = ReadBCD(data, off, 10)
@@ -184,6 +194,7 @@ func (m *ChargerStartReply) Decode(data []byte) error {
 	m.StopCode, off, _ = ReadBCD(data, off, 2)
 	return nil
 }
+
 func (m *ChargerStartReply) Encode() ([]byte, error) {
 	buf := make([]byte, 10+10+4+4+2+4+4+4+1+1+50+1+1+int(m.FeeNum)*9+2)
 	off := 0
@@ -211,7 +222,9 @@ func (m *ChargerStartReply) Encode() ([]byte, error) {
 	off, _ = WriteBCD(buf, off, m.StopCode, 2)
 	return buf[:off], nil
 }
+
 func (m *ChargerStartReply) Validate() []types.ValidationError { return nil }
+
 func (m *ChargerStartReply) ToJSONMap() map[string]interface{} {
 	fees := make([]map[string]interface{}, len(m.ListFee))
 	for i, f := range m.ListFee {
@@ -275,6 +288,7 @@ type ChargerStopUpload struct {
 func (m *ChargerStopUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncChargerStop, types.DirectionUpload, "charger_stop_upload", false, true)
 }
+
 func (m *ChargerStopUpload) Decode(data []byte) error {
 	off := 0
 	m.ChargeOrderNo, off, _ = ReadBCD(data, off, 10)
@@ -318,8 +332,10 @@ func (m *ChargerStopUpload) Decode(data []byte) error {
 	m.ChargeEndTime, off, _ = ReadBCD(data, off, 7)
 	return nil
 }
+
 func (m *ChargerStopUpload) Encode() ([]byte, error) { return nil, nil } // TODO
 func (m *ChargerStopUpload) Validate() []types.ValidationError { return nil }
+
 func (m *ChargerStopUpload) ToJSONMap() map[string]interface{} {
 	fees := make([]map[string]interface{}, len(m.FeeModelList))
 	for i, f := range m.FeeModelList {
@@ -348,19 +364,23 @@ type ChargerStopReply struct {
 func (m *ChargerStopReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncChargerStop, types.DirectionReply, "charger_stop_reply", false, false)
 }
+
 func (m *ChargerStopReply) Decode(data []byte) error {
 	off := 0
 	m.ChargeOrderNo, off, _ = ReadBCD(data, off, 10)
 	m.ResponseCode, off, _ = ReadByte(data, off)
 	return nil
 }
+
 func (m *ChargerStopReply) Encode() ([]byte, error) {
 	buf := make([]byte, 11)
 	off, _ := WriteBCD(buf, 0, m.ChargeOrderNo, 10)
 	WriteByte(buf, off, m.ResponseCode)
 	return buf, nil
 }
+
 func (m *ChargerStopReply) Validate() []types.ValidationError { return nil }
+
 func (m *ChargerStopReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"chargeOrderNo": m.ChargeOrderNo, "responseCode": m.ResponseCode}
 }
@@ -405,6 +425,7 @@ type ChargingDataUpload struct {
 func (m *ChargingDataUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncChargingData, types.DirectionUpload, "charging_data_upload", false, true)
 }
+
 func (m *ChargingDataUpload) Decode(data []byte) error {
 	off := 0
 	m.ChargingOrderNumber, off, _ = ReadBCD(data, off, 10)
@@ -440,8 +461,10 @@ func (m *ChargingDataUpload) Decode(data []byte) error {
 	}
 	return nil
 }
+
 func (m *ChargingDataUpload) Encode() ([]byte, error) { return nil, nil } // TODO
 func (m *ChargingDataUpload) Validate() []types.ValidationError { return nil }
+
 func (m *ChargingDataUpload) ToJSONMap() map[string]interface{} {
 	items := make([]map[string]interface{}, len(m.OverTimeAccumulateInformationList))
 	for i, item := range m.OverTimeAccumulateInformationList {
@@ -470,12 +493,16 @@ type ChargingDataReply struct {
 func (m *ChargingDataReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncChargingData, types.DirectionReply, "charging_data_reply", false, false)
 }
+
 func (m *ChargingDataReply) Decode(data []byte) error {
 	if len(data) < 1 { return errInsufficientData(1, len(data)) }
 	m.Confirm = data[0]; return nil
 }
+
 func (m *ChargingDataReply) Encode() ([]byte, error) { return []byte{m.Confirm}, nil }
+
 func (m *ChargingDataReply) Validate() []types.ValidationError { return nil }
+
 func (m *ChargingDataReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"confirm": m.Confirm}
 }

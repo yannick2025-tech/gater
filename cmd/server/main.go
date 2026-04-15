@@ -1,3 +1,4 @@
+// Package main provides the nts-gater server entry point.
 package main
 
 import (
@@ -7,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	logging "github.com/yannick2025-tech/gwc-logging"
@@ -91,6 +93,9 @@ func main() {
 			logger.Errorf("HTTP server error: %v", err)
 		}
 	}()
+
+	// 心跳超时检查：定期扫描超时会话并断开连接
+	go heartbeatCheckLoop(ctx, sessMgr, srv, proto, scenarioEngine, logger)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -191,6 +196,21 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	}
 	sess.Recorder.RecordRecv(header.FuncCode, msgStatus, hexData, jsonData, decodeErr)
 
+	// 6.1 异步存档消息到数据库（不影响主流程）
+	go func() {
+		if msg != nil && msgStatus == recorder.StatusSuccess {
+			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
+				Timestamp: time.Now(),
+				FuncCode:  header.FuncCode,
+				Direction: dir,
+				Status:    msgStatus,
+				HexData:   hexData,
+				JSONData:  jsonData,
+				ErrorMsg:  decodeErr,
+			})
+		}
+	}()
+
 	// 7. 日志
 	if msg != nil {
 		logger.Infof("[%s] recv func=0x%02X name=%s postNo=%d charger=%d status=%s",
@@ -207,6 +227,19 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 
 		replyHex := fmt.Sprintf("% X", replyData)
 		sess.Recorder.RecordReply(replyHeader.FuncCode, recorder.StatusSuccess, replyHex, "", "")
+
+		// 异步存档回复消息
+		go func() {
+			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
+				Timestamp: time.Now(),
+				FuncCode:  replyHeader.FuncCode,
+				Direction: types.DirectionReply,
+				Status:    recorder.StatusSuccess,
+				HexData:   replyHex,
+				JSONData:  "",
+				ErrorMsg:  "",
+			})
+		}()
 
 		return conn.Send(replyHeader, replyData, encryptFn)
 	}
@@ -294,5 +327,34 @@ func initLogger(cfg config.LogConfig) logging.Logger {
 	if err != nil {
 		panic(fmt.Sprintf("failed to init logger: %v", err))
 	}
+
 	return logger
+}
+
+// heartbeatCheckLoop 定期检查心跳超时的会话，断开连接并生成报告
+func heartbeatCheckLoop(ctx context.Context, sessMgr *session.SessionManager,
+	srv *server.Server, proto types.Protocol, scenarioEngine *scenario.Engine, logger logging.Logger,
+) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			expired := sessMgr.FindHeartbeatTimeout()
+			for _, sess := range expired {
+				logger.Warnf("[sess:%s] heartbeat timeout, postNo=%d, closing connection", sess.ID, sess.PostNo)
+
+				// 关闭TCP连接
+				if conn, ok := srv.FindConnectionByPostNo(sess.PostNo); ok {
+					conn.Close()
+				}
+
+				// 触发断开回调（生成报告、保存数据库）
+				onDisconnect(nil, sess.PostNo, sessMgr, proto, scenarioEngine, logger)
+			}
+		}
+	}
 }

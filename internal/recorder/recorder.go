@@ -1,3 +1,4 @@
+// Package recorder provides per-session message recording and statistics.
 package recorder
 
 import (

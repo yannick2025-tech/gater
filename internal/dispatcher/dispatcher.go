@@ -1,3 +1,4 @@
+// Package dispatcher provides message dispatching to registered handlers.
 package dispatcher
 
 import (

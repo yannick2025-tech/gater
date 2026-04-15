@@ -1,3 +1,4 @@
+// Package scenario provides error definitions for the scenario engine.
 package scenario
 
 import "errors"

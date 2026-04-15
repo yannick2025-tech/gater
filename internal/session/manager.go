@@ -1,3 +1,4 @@
+// Package session provides charging station session management.
 package session
 
 import (

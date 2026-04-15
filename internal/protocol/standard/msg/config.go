@@ -1,3 +1,4 @@
+// Package msg provides 0x0C/0xC1/0xC2 configuration message definitions.
 package msg
 
 import "github.com/yannick2025-tech/nts-gater/internal/protocol/types"
@@ -8,18 +9,23 @@ type DeviceQueryDownload struct {
 	CmdCode byte   `json:"cmdCode"` // 命令码
 	Data    []byte `json:"data"`    // 数据内容
 }
+
 func (m *DeviceQueryDownload) Spec() types.MessageSpec { return MakeSpec(types.FuncDeviceQuery, types.DirectionDownload, "device_query_download", false, true) }
+
 func (m *DeviceQueryDownload) Decode(data []byte) error {
 	if len(data) < 1 { return errInsufficientData(1, len(data)) }
 	m.CmdCode = data[0]
 	if len(data) > 1 { m.Data = data[1:] }
 	return nil
 }
+
 func (m *DeviceQueryDownload) Encode() ([]byte, error) {
 	buf := make([]byte, 1+len(m.Data))
 	buf[0] = m.CmdCode; copy(buf[1:], m.Data); return buf, nil
 }
+
 func (m *DeviceQueryDownload) Validate() []types.ValidationError { return nil }
+
 func (m *DeviceQueryDownload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"cmdCode": m.CmdCode}
 }
@@ -29,18 +35,23 @@ type DeviceQueryReply struct {
 	CmdCode    byte   `json:"cmdCode"`
 	Result     []byte `json:"result"`
 }
+
 func (m *DeviceQueryReply) Spec() types.MessageSpec { return MakeSpec(types.FuncDeviceQuery, types.DirectionReply, "device_query_reply", false, false) }
+
 func (m *DeviceQueryReply) Decode(data []byte) error {
 	if len(data) < 2 { return errInsufficientData(2, len(data)) }
 	m.ResultCode = data[0]; m.CmdCode = data[1]
 	if len(data) > 2 { m.Result = data[2:] }
 	return nil
 }
+
 func (m *DeviceQueryReply) Encode() ([]byte, error) {
 	buf := make([]byte, 2+len(m.Result))
 	buf[0] = m.ResultCode; buf[1] = m.CmdCode; copy(buf[2:], m.Result); return buf, nil
 }
+
 func (m *DeviceQueryReply) Validate() []types.ValidationError { return nil }
+
 func (m *DeviceQueryReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"resultCode": m.ResultCode, "cmdCode": m.CmdCode, "result": m.Result}
 }
@@ -57,7 +68,9 @@ type ParamReportUpload struct {
 	ParamCount uint16      `json:"paramCount"`
 	ParamList  []ParamItem `json:"paramList"`
 }
+
 func (m *ParamReportUpload) Spec() types.MessageSpec { return MakeSpec(types.FuncParamReport, types.DirectionUpload, "param_report_upload", false, true) }
+
 func (m *ParamReportUpload) Decode(data []byte) error {
 	off := 0
 	m.ParamCount, off, _ = ReadUint16LE(data, off)
@@ -71,8 +84,10 @@ func (m *ParamReportUpload) Decode(data []byte) error {
 	}
 	return nil
 }
+
 func (m *ParamReportUpload) Encode() ([]byte, error) { return nil, nil } // TODO
 func (m *ParamReportUpload) Validate() []types.ValidationError { return nil }
+
 func (m *ParamReportUpload) ToJSONMap() map[string]interface{} {
 	items := make([]map[string]interface{}, len(m.ParamList))
 	for i, p := range m.ParamList {
@@ -84,13 +99,18 @@ func (m *ParamReportUpload) ToJSONMap() map[string]interface{} {
 type ParamReportReply struct {
 	ResponseCode byte `json:"responseCode"` // 00成功 01失败
 }
+
 func (m *ParamReportReply) Spec() types.MessageSpec { return MakeSpec(types.FuncParamReport, types.DirectionReply, "param_report_reply", false, false) }
+
 func (m *ParamReportReply) Decode(data []byte) error {
 	if len(data) < 1 { return errInsufficientData(1, len(data)) }
 	m.ResponseCode = data[0]; return nil
 }
+
 func (m *ParamReportReply) Encode() ([]byte, error) { return []byte{m.ResponseCode}, nil }
+
 func (m *ParamReportReply) Validate() []types.ValidationError { return nil }
+
 func (m *ParamReportReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"responseCode": m.ResponseCode}
 }
@@ -100,7 +120,9 @@ func (m *ParamReportReply) ToJSONMap() map[string]interface{} {
 type ConfigDownloadMsg struct {
 	ParamList []ParamItem `json:"paramList"`
 }
+
 func (m *ConfigDownloadMsg) Spec() types.MessageSpec { return MakeSpec(types.FuncConfigDownload, types.DirectionDownload, "config_download", false, true) }
+
 func (m *ConfigDownloadMsg) Decode(data []byte) error {
 	off := 0
 	for off < len(data) {
@@ -112,8 +134,10 @@ func (m *ConfigDownloadMsg) Decode(data []byte) error {
 	}
 	return nil
 }
+
 func (m *ConfigDownloadMsg) Encode() ([]byte, error) { return nil, nil } // TODO
 func (m *ConfigDownloadMsg) Validate() []types.ValidationError { return nil }
+
 func (m *ConfigDownloadMsg) ToJSONMap() map[string]interface{} {
 	items := make([]map[string]interface{}, len(m.ParamList))
 	for i, p := range m.ParamList {
@@ -131,7 +155,9 @@ type ConfigDownloadReply struct {
 	ParamCount uint16             `json:"paramCount"`
 	ResultList []ConfigResultItem `json:"resultList"`
 }
+
 func (m *ConfigDownloadReply) Spec() types.MessageSpec { return MakeSpec(types.FuncConfigDownload, types.DirectionReply, "config_download_reply", false, false) }
+
 func (m *ConfigDownloadReply) Decode(data []byte) error {
 	off := 0; m.ParamCount, off, _ = ReadUint16LE(data, off)
 	m.ResultList = make([]ConfigResultItem, m.ParamCount)
@@ -141,8 +167,10 @@ func (m *ConfigDownloadReply) Decode(data []byte) error {
 	}
 	return nil
 }
+
 func (m *ConfigDownloadReply) Encode() ([]byte, error) { return nil, nil } // TODO
 func (m *ConfigDownloadReply) Validate() []types.ValidationError { return nil }
+
 func (m *ConfigDownloadReply) ToJSONMap() map[string]interface{} {
 	items := make([]map[string]interface{}, len(m.ResultList))
 	for i, r := range m.ResultList {

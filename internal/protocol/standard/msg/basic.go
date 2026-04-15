@@ -1,3 +1,4 @@
+// Package msg provides 0x01 heartbeat and 0x23 time sync message definitions.
 package msg
 
 import (
@@ -18,6 +19,7 @@ type HeartbeatUpload struct {
 func (m *HeartbeatUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncHeartbeat, types.DirectionUpload, "heartbeat_upload", false, true)
 }
+
 func (m *HeartbeatUpload) Decode(data []byte) error {
 	if len(data) < 4 {
 		return errInsufficientData(4, len(data))
@@ -33,6 +35,7 @@ func (m *HeartbeatUpload) Decode(data []byte) error {
 	}
 	return nil
 }
+
 func (m *HeartbeatUpload) Encode() ([]byte, error) {
 	buf := make([]byte, 4)
 	off := 0
@@ -45,6 +48,7 @@ func (m *HeartbeatUpload) Encode() ([]byte, error) {
 	}
 	return buf[:off], nil
 }
+
 func (m *HeartbeatUpload) Validate() []types.ValidationError {
 	var errs []types.ValidationError
 	if _, ok := StatusCodes[m.Status]; !ok {
@@ -52,6 +56,7 @@ func (m *HeartbeatUpload) Validate() []types.ValidationError {
 	}
 	return errs
 }
+
 func (m *HeartbeatUpload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{
 		"status": m.Status, "errorCode": m.ErrorCode,
@@ -65,9 +70,13 @@ type HeartbeatReply struct{}
 func (m *HeartbeatReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncHeartbeat, types.DirectionReply, "heartbeat_reply", false, false)
 }
+
 func (m *HeartbeatReply) Decode(_ []byte) error { return nil }
+
 func (m *HeartbeatReply) Encode() ([]byte, error) { return []byte{}, nil }
+
 func (m *HeartbeatReply) Validate() []types.ValidationError { return nil }
+
 func (m *HeartbeatReply) ToJSONMap() map[string]interface{} { return map[string]interface{}{} }
 
 // ==================== 0x23 对时 ====================
@@ -78,9 +87,13 @@ type TimeSyncUpload struct{}
 func (m *TimeSyncUpload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncTimeSync, types.DirectionUpload, "time_sync_upload", false, true)
 }
+
 func (m *TimeSyncUpload) Decode(_ []byte) error { return nil }
+
 func (m *TimeSyncUpload) Encode() ([]byte, error) { return []byte{}, nil }
+
 func (m *TimeSyncUpload) Validate() []types.ValidationError { return nil }
+
 func (m *TimeSyncUpload) ToJSONMap() map[string]interface{} { return map[string]interface{}{} }
 
 // TimeSyncReply 平台回复对时
@@ -91,6 +104,7 @@ type TimeSyncReply struct {
 func (m *TimeSyncReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncTimeSync, types.DirectionReply, "time_sync_reply", false, false)
 }
+
 func (m *TimeSyncReply) Decode(data []byte) error {
 	if len(data) < 7 {
 		return errInsufficientData(7, len(data))
@@ -105,12 +119,15 @@ func (m *TimeSyncReply) Decode(data []byte) error {
 	}
 	return nil
 }
+
 func (m *TimeSyncReply) Encode() ([]byte, error) {
 	buf := make([]byte, 7)
 	off, _ := WriteBCD(buf, 0, m.DateTime, 7)
 	return buf[:off], nil
 }
+
 func (m *TimeSyncReply) Validate() []types.ValidationError { return nil }
+
 func (m *TimeSyncReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"dateTime": m.DateTime}
 }

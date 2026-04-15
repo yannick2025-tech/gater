@@ -1,3 +1,4 @@
+// Package scenario provides the basic charging test scenario.
 package scenario
 
 import (

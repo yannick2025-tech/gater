@@ -1,3 +1,4 @@
+// Package codec provides integration tests for frame encoding/decoding.
 package codec
 
 import (

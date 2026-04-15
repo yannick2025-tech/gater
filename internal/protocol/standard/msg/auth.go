@@ -23,6 +23,7 @@ func (m *Auth0AUpload) Decode(data []byte) error {
 	m.B0x00 = data[0]
 	return nil
 }
+
 func (m *Auth0AUpload) Encode() ([]byte, error) {
 	return []byte{m.B0x00}, nil
 }
@@ -34,6 +35,7 @@ func (m *Auth0AUpload) Validate() []types.ValidationError {
 	}
 	return errs
 }
+
 func (m *Auth0AUpload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"b0x00": m.B0x00}
 }
@@ -46,6 +48,7 @@ type Auth0AReply struct {
 func (m *Auth0AReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncAuthRandom, types.DirectionReply, "access_auth_random_reply", true, false)
 }
+
 func (m *Auth0AReply) Decode(data []byte) error {
 	if len(data) < 13 {
 		return errInsufficientData(13, len(data))
@@ -54,6 +57,7 @@ func (m *Auth0AReply) Decode(data []byte) error {
 	copy(m.RandomKey, data[:13])
 	return nil
 }
+
 func (m *Auth0AReply) Encode() ([]byte, error) {
 	if len(m.RandomKey) != 13 {
 		return nil, errFieldLength("randomKey", 13, len(m.RandomKey))
@@ -62,7 +66,9 @@ func (m *Auth0AReply) Encode() ([]byte, error) {
 	copy(result, m.RandomKey)
 	return result, nil
 }
+
 func (m *Auth0AReply) Validate() []types.ValidationError { return nil }
+
 func (m *Auth0AReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"bodyT": m.RandomKey}
 }
@@ -126,6 +132,7 @@ func (m *Auth0BUpload) Encode() ([]byte, error) {
 	off = WriteUint16LE(buf, off, m.FaultCodeVersion)
 	return buf[:off], nil
 }
+
 func (m *Auth0BUpload) Validate() []types.ValidationError {
 	var errs []types.ValidationError
 	if m.FirmwareVersion < 200 {
@@ -133,6 +140,7 @@ func (m *Auth0BUpload) Validate() []types.ValidationError {
 	}
 	return errs
 }
+
 func (m *Auth0BUpload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{
 		"md5Sum": m.Md5Sum, "firmwareType": m.FirmwareType,
@@ -150,6 +158,7 @@ type Auth0BReply struct {
 func (m *Auth0BReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncAuthEncrypted, types.DirectionReply, "access_auth_encrypted_reply", true, false)
 }
+
 func (m *Auth0BReply) Decode(data []byte) error {
 	if len(data) < 7 {
 		return errInsufficientData(7, len(data))
@@ -159,12 +168,14 @@ func (m *Auth0BReply) Decode(data []byte) error {
 	copy(m.Time, data[1:7])
 	return nil
 }
+
 func (m *Auth0BReply) Encode() ([]byte, error) {
 	buf := make([]byte, 7)
 	buf[0] = m.AuthStatus
 	copy(buf[1:], m.Time)
 	return buf, nil
 }
+
 func (m *Auth0BReply) Validate() []types.ValidationError {
 	var errs []types.ValidationError
 	if m.AuthStatus > 1 {
@@ -172,6 +183,7 @@ func (m *Auth0BReply) Validate() []types.ValidationError {
 	}
 	return errs
 }
+
 func (m *Auth0BReply) ToJSONMap() map[string]interface{} {
 	// time转为毫秒时间戳，与示例JSON一致
 	return map[string]interface{}{"authStatus": m.AuthStatus, "time": m.Time}
@@ -188,6 +200,7 @@ type KeyUpdateDownload struct {
 func (m *KeyUpdateDownload) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncKeyUpdate, types.DirectionDownload, "key_update_download", true, true)
 }
+
 func (m *KeyUpdateDownload) Decode(data []byte) error {
 	if len(data) < 32 {
 		return errInsufficientData(32, len(data))
@@ -198,13 +211,16 @@ func (m *KeyUpdateDownload) Decode(data []byte) error {
 	copy(m.NewAesKey, data[16:32])
 	return nil
 }
+
 func (m *KeyUpdateDownload) Encode() ([]byte, error) {
 	buf := make([]byte, 32)
 	copy(buf[:16], m.OriginalKey)
 	copy(buf[16:], m.NewAesKey)
 	return buf, nil
 }
+
 func (m *KeyUpdateDownload) Validate() []types.ValidationError { return nil }
+
 func (m *KeyUpdateDownload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"newAesKey": fmtHex(m.NewAesKey)}
 }
@@ -218,6 +234,7 @@ type KeyUpdateReply struct {
 func (m *KeyUpdateReply) Spec() types.MessageSpec {
 	return MakeSpec(types.FuncKeyUpdate, types.DirectionReply, "key_update_reply", true, false)
 }
+
 func (m *KeyUpdateReply) Decode(data []byte) error {
 	if len(data) < 17 {
 		return errInsufficientData(17, len(data))
@@ -227,12 +244,14 @@ func (m *KeyUpdateReply) Decode(data []byte) error {
 	m.SecretUpdateStatus = data[16]
 	return nil
 }
+
 func (m *KeyUpdateReply) Encode() ([]byte, error) {
 	buf := make([]byte, 17)
 	copy(buf[:16], m.NewAesKey)
 	buf[16] = m.SecretUpdateStatus
 	return buf, nil
 }
+
 func (m *KeyUpdateReply) Validate() []types.ValidationError {
 	var errs []types.ValidationError
 	if m.SecretUpdateStatus > 1 {
@@ -240,6 +259,7 @@ func (m *KeyUpdateReply) Validate() []types.ValidationError {
 	}
 	return errs
 }
+
 func (m *KeyUpdateReply) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{"newAesKey": fmtHex(m.NewAesKey), "secretUpdateStatus": m.SecretUpdateStatus}
 }

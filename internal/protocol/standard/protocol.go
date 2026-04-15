@@ -1,3 +1,4 @@
+// Package standard provides the standard protocol implementation.
 package standard
 
 import (
@@ -38,10 +39,15 @@ func New() *StandardProtocol {
 }
 
 func (p *StandardProtocol) Name() string          { return "standard" }
+
 func (p *StandardProtocol) Version() byte         { return 0x06 }
+
 func (p *StandardProtocol) FrameConfig() types.FrameConfig   { return p.frameConfig }
+
 func (p *StandardProtocol) CryptoConfig() types.CryptoConfig { return p.cryptoConfig }
+
 func (p *StandardProtocol) TempConfig() types.TempConfig     { return p.tempConfig }
+
 func (p *StandardProtocol) Registry() types.MessageRegistry  { return p.registry }
 
 func (p *StandardProtocol) IsFixedKeyFuncCode(code byte) bool {

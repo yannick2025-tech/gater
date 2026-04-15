@@ -1,3 +1,4 @@
+// Package scenario provides the test scenario engine and Scenario interface.
 package scenario
 
 import (
@@ -101,29 +102,7 @@ func (e *Engine) StartScenario(sessionID string, testCase string) (Scenario, err
 		return nil, ErrConnectionNotFound
 	}
 
-	// 创建发送函数
-	sendFn := func(msg types.Message) error {
-		data, err := msg.Encode()
-		if err != nil {
-			return err
-		}
-
-		spec := msg.Spec()
-		header := types.MessageHeader{
-			StartByte:   e.proto.FrameConfig().StartByte,
-			Version:     e.proto.Version(),
-			FuncCode:    spec.FuncCode,
-			PostNo:      sess.PostNo,
-			Charger:     1, // 默认1号枪
-			EncryptFlag: 0x00,
-		}
-		if spec.Encrypt {
-			header.EncryptFlag = 0x01
-		}
-
-		encryptFn := sess.GetEncryptFn()
-		return conn.Send(header, data, encryptFn)
-	}
+	sendFn := e.createSendFn(sess, conn)
 
 	// 创建场景
 	var sc Scenario
@@ -132,6 +111,8 @@ func (e *Engine) StartScenario(sessionID string, testCase string) (Scenario, err
 		sc = NewBasicChargingScenario(sessionID, sess, e.proto, e.logger)
 	case "sftp_upgrade":
 		sc = NewSFTPUpgradeScenario(sessionID, sess, e.proto, e.logger)
+	case "config_download":
+		sc = NewConfigDownloadScenario(sessionID, sess, e.proto, e.logger)
 	default:
 		return nil, ErrUnknownTestCase
 	}
@@ -177,5 +158,66 @@ func (e *Engine) RemoveScenario(sessionID string) {
 	if sc, ok := e.scenarios[sessionID]; ok {
 		sc.Stop()
 		delete(e.scenarios, sessionID)
+	}
+}
+
+// StartConfigScenario 启动配置下发场景（需要额外的JSON配置项）
+func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scenario, error) {
+	sess, ok := e.sessMgr.Get(sessionID)
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+
+	if existing, ok := e.scenarios[sessionID]; ok && existing.State() == StateRunning {
+		return nil, ErrScenarioAlreadyRunning
+	}
+
+	conn, ok := e.srv.FindConnectionByPostNo(sess.PostNo)
+	if !ok {
+		return nil, ErrConnectionNotFound
+	}
+
+	sendFn := e.createSendFn(sess, conn)
+
+	sc := NewConfigDownloadScenario(sessionID, sess, e.proto, e.logger)
+	if err := sc.SetConfigItems(items); err != nil {
+		return nil, err
+	}
+
+	sc.SetSendFunc(sendFn)
+	if err := sc.Start(); err != nil {
+		return nil, err
+	}
+
+	e.scenarios[sessionID] = sc
+	e.logger.Infof("[scenario] started %s for session=%s postNo=%d items=%d", sc.Name(), sessionID, sess.PostNo, len(items))
+
+	return sc, nil
+}
+
+// createSendFunc 创建消息发送函数
+func (e *Engine) createSendFn(sess *session.Session, conn *server.Connection) SendFunc {
+	return func(msg types.Message) error {
+		data, err := msg.Encode()
+		if err != nil {
+			return err
+		}
+
+		spec := msg.Spec()
+		header := types.MessageHeader{
+			StartByte:   e.proto.FrameConfig().StartByte,
+			Version:     e.proto.Version(),
+			FuncCode:    spec.FuncCode,
+			PostNo:      sess.PostNo,
+			Charger:     1,
+			EncryptFlag: 0x00,
+		}
+		if spec.Encrypt {
+			header.EncryptFlag = 0x01
+		}
+
+		encryptFn := sess.GetEncryptFn()
+
+		return conn.Send(header, data, encryptFn)
 	}
 }
