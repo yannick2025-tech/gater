@@ -9,6 +9,7 @@ import (
 
 	"github.com/yannick2025-tech/nts-gater/internal/config"
 	"github.com/yannick2025-tech/nts-gater/internal/dispatcher"
+	"github.com/yannick2025-tech/nts-gater/internal/handlers"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
 	"github.com/yannick2025-tech/nts-gater/internal/server"
@@ -18,42 +19,32 @@ import (
 )
 
 func main() {
-	// 加载配置
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Printf("failed to load config: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 初始化日志
 	logger := initLogger(cfg.Log)
 	defer logger.Close()
 
 	logger.Info("nts-gater starting...")
 	logger.Infof("config loaded: server=%s:%d", cfg.Server.Host, cfg.Server.Port)
 
-	// 初始化协议
 	proto := standard.New()
 	logger.Infof("protocol: name=%s, version=0x%02X, registered_messages=%d",
 		proto.Name(), proto.Version(), len(proto.Registry().AllSpecs()))
 
-	// 初始化会话管理器
 	sessMgr := session.NewManager(proto, cfg.Server.HeartbeatTimeout)
-
-	// 初始化验证器
 	frameValidator := validator.New(proto)
-
-	// 初始化分发器
 	dp := dispatcher.New(proto, sessMgr, logger)
-	registerHandlers(dp)
+	handlers.Register(dp, sessMgr, logger)
 
-	// 创建TCP服务器
 	srv := server.New(cfg, proto, logger)
 	srv.OnMessage(func(conn *server.Connection, header types.MessageHeader, data []byte) {
 		onMessage(conn, header, data, proto, sessMgr, frameValidator, dp, logger)
 	})
 
-	// 启动
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -61,7 +52,6 @@ func main() {
 		logger.Fatalf("failed to start server: %v", err)
 	}
 
-	// 等待退出信号
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
@@ -80,10 +70,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		return
 	}
 
-	// 2. 确定消息方向
-	dir := directionOf(header)
-
-	// 3. 获取或创建会话
+	// 2. 获取或创建会话
 	sess, ok := sessMgr.GetByPostNo(header.PostNo)
 	if !ok {
 		sess, err := sessMgr.Create(header.PostNo, conn.ID)
@@ -91,25 +78,30 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			logger.Errorf("[%s] create session failed: %v", conn.ID, err)
 			return
 		}
-		logger.Infof("[%s] new session created: %s, postNo=%d", conn.ID, sess.ID, header.PostNo)
+		logger.Infof("[%s] new session: %s, postNo=%d", conn.ID, sess.ID, header.PostNo)
 	}
-
 	sess.UpdateActive()
 
-	// 4. 检查认证状态（仅对需要认证的功能码）
-	// 0x0A/0x0B/0x21 使用固定密钥，不需要已认证状态
-	if !proto.IsFixedKeyFuncCode(header.FuncCode) && sess.GetAuthState() != session.Authenticated {
-		logger.Warnf("[%s] session not authenticated, func=0x%02X", conn.ID, header.FuncCode)
-		return
+	// 3. 解密数据域（如需加密且已认证，或使用固定密钥的功能码）
+	decryptFn := sess.GetDecryptFn()
+	if proto.IsFixedKeyFuncCode(header.FuncCode) || sess.GetAuthState() == session.Authenticated {
+		if header.EncryptFlag == 0x01 && decryptFn != nil {
+			decrypted, err := decryptFn(data)
+			if err != nil {
+				logger.Warnf("[%s] decrypt func=0x%02X failed: %v", conn.ID, header.FuncCode, err)
+				return
+			}
+			data = decrypted
+		}
 	}
 
-	// 5. 创建消息实例并解码
+	// 4. 消息解码
+	dir := directionOf(header)
 	msg, ok := proto.Registry().Create(header.FuncCode, dir)
 	if !ok {
 		logger.Warnf("[%s] unregistered func=0x%02X dir=%v", conn.ID, header.FuncCode, dir)
 		return
 	}
-
 	if len(data) > 0 {
 		if err := msg.Decode(data); err != nil {
 			logger.Warnf("[%s] decode func=0x%02X failed: %v", conn.ID, header.FuncCode, err)
@@ -117,18 +109,28 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		}
 	}
 
-	// 6. 字段校验
+	// 5. 字段校验
 	if errs := validator.ValidateMessage(msg); len(errs) > 0 {
 		for _, e := range errs {
 			logger.Warnf("[%s] validation: field=%s code=%s msg=%s", conn.ID, e.Field, e.Code, e.Message)
 		}
 	}
 
-	// 7. 打印日志
+	// 6. 日志
 	logger.Infof("[%s] recv func=0x%02X name=%s postNo=%d charger=%d json=%+v",
 		conn.ID, header.FuncCode, msg.Spec().Name, header.PostNo, header.Charger, msg.ToJSONMap())
 
-	// 8. 分发到业务处理器
+	// 7. 分发
+	replyFn := func(replyHeader types.MessageHeader, replyData []byte) error {
+		// 自动加密
+		encryptFn := sess.GetEncryptFn()
+		replyHeader.PostNo = header.PostNo
+		replyHeader.Charger = header.Charger
+		replyHeader.Version = proto.Version()
+		replyHeader.StartByte = proto.FrameConfig().StartByte
+		return conn.Send(replyHeader, replyData, encryptFn)
+	}
+
 	ctx := &dispatcher.Context{
 		PostNo:   header.PostNo,
 		Charger:  header.Charger,
@@ -137,27 +139,20 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		Data:     data,
 		Message:  msg,
 		Session:  sess,
+		Logger:   logger,
+		Reply:    replyFn,
+		Proto:    proto,
 	}
 
 	if dp.HasHandler(header.FuncCode, dir) {
 		if err := dp.Dispatch(ctx); err != nil {
 			logger.Errorf("[%s] handle func=0x%02X error: %v", conn.ID, header.FuncCode, err)
 		}
-	} else {
-		logger.Debugf("[%s] no handler for func=0x%02X, skipping dispatch", conn.ID, header.FuncCode)
 	}
 }
 
 func directionOf(header types.MessageHeader) types.Direction {
 	return types.DirectionUpload
-}
-
-// registerHandlers 注册业务处理器
-func registerHandlers(dp *dispatcher.Dispatcher) {
-	// TODO: 在 M3 中注册具体的业务处理器
-	// 示例:
-	// dp.RegisterFunc(types.FuncHeartbeat, types.DirectionUpload, handleHeartbeat)
-	// dp.RegisterFunc(types.FuncAuthRandom, types.DirectionUpload, handleAuthRandom)
 }
 
 func initLogger(cfg config.LogConfig) logging.Logger {
