@@ -8,6 +8,7 @@ import (
 
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/crypto"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 )
 
 // AuthState 认证状态
@@ -61,6 +62,7 @@ type Session struct {
 	FixedCipher   *crypto.AESCBCCipher // 固定密钥加密器
 	SessionCipher *crypto.AESCBCCipher // 会话密钥加密器
 	RandomKey     []byte               // 13位随机密钥（0x0A下发）
+	Recorder      *recorder.SessionRecorder // 消息记录器
 	CreatedAt     time.Time
 	LastActive    time.Time
 
@@ -152,7 +154,16 @@ func NewManager(proto types.Protocol, heartbeatTimeout time.Duration) *SessionMa
 }
 
 // Create 创建会话（充电桩新连接时调用）
+// 如果该桩号已有活跃会话，返回 ErrDuplicatePostNo
 func (m *SessionManager) Create(postNo uint32, connID string) (*Session, error) {
+	// 拒绝重复桩号连接
+	m.mu.RLock()
+	if _, exists := m.postNoMap[postNo]; exists {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("postNo %d already has an active session, connection rejected", postNo)
+	}
+	m.mu.RUnlock()
+
 	fixedCipher, err := crypto.NewAESCBCCipher(m.fixedKey, m.ivRule)
 	if err != nil {
 		return nil, fmt.Errorf("create fixed cipher: %w", err)
@@ -169,6 +180,7 @@ func (m *SessionManager) Create(postNo uint32, connID string) (*Session, error) 
 		AuthState:   AuthNone,
 		KeyState:    KeyFixed,
 		FixedCipher: fixedCipher,
+		Recorder:    recorder.NewSessionRecorder(id, postNo),
 		CreatedAt:   now,
 		LastActive:  now,
 	}
@@ -201,11 +213,14 @@ func (m *SessionManager) GetByPostNo(postNo uint32) (*Session, bool) {
 	return sess, ok
 }
 
-// Remove 移除会话
+// Remove 移除会话并关闭记录器
 func (m *SessionManager) Remove(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if sess, ok := m.sessions[id]; ok {
+		if sess.Recorder != nil {
+			sess.Recorder.Close()
+		}
 		delete(m.postNoMap, sess.PostNo)
 		delete(m.sessions, id)
 	}

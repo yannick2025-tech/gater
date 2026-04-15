@@ -56,16 +56,20 @@ func (c *Connection) Close() error {
 	return c.Conn.Close()
 }
 
+// DisconnectHandler 断开连接回调（用于生成报告等）
+type DisconnectHandler func(conn *Connection, postNo uint32)
+
 // Server TCP服务器
 type Server struct {
-	cfg        *config.Config
-	proto      types.Protocol
-	logger     logging.Logger
-	handler    MessageHandler
-	listener   net.Listener
-	mu         sync.RWMutex
+	cfg         *config.Config
+	proto       types.Protocol
+	logger      logging.Logger
+	handler     MessageHandler
+	onDisconnect DisconnectHandler
+	listener    net.Listener
+	mu          sync.RWMutex
 	connections map[string]*Connection
-	connCount  uint64
+	connCount   uint64
 }
 
 // New 创建TCP服务器
@@ -81,6 +85,11 @@ func New(cfg *config.Config, proto types.Protocol, logger logging.Logger) *Serve
 // OnMessage 设置消息处理回调
 func (s *Server) OnMessage(handler MessageHandler) {
 	s.handler = handler
+}
+
+// OnDisconnect 设置断开连接回调
+func (s *Server) OnDisconnect(handler DisconnectHandler) {
+	s.onDisconnect = handler
 }
 
 // Start 启动TCP服务器
@@ -157,11 +166,17 @@ func (s *Server) acceptLoop(ctx context.Context) {
 // handleConnection 处理单个连接
 func (s *Server) handleConnection(ctx context.Context, conn *Connection) {
 	defer func() {
+		postNo := conn.PostNo
 		conn.Close()
 		s.mu.Lock()
 		delete(s.connections, conn.ID)
 		s.mu.Unlock()
-		s.logger.Infof("[%s] disconnected, total=%d", conn.ID, s.ConnectionCount())
+		s.logger.Infof("[%s] disconnected, postNo=%d, total=%d", conn.ID, postNo, s.ConnectionCount())
+
+		// 断开连接回调（生成报告、移除会话等）
+		if s.onDisconnect != nil && postNo > 0 {
+			s.onDisconnect(conn, postNo)
+		}
 	}()
 
 	buf := make([]byte, 4096)
