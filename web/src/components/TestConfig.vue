@@ -11,6 +11,7 @@
       :model="formData"
       label-width="0px"
       class="config-form"
+      label-position="top"
     >
       <!-- 用例选择 -->
       <div class="form-section">
@@ -255,10 +256,12 @@ function handleStart() {
 
 .form-row.three-col .form-item-nested {
   flex: 1;
+  min-width: 0; /* 防止flex子项溢出 */
 }
 
 .form-row.two-col .form-item-nested {
   flex: 1;
+  min-width: 0;
 }
 
 .full-row {
@@ -267,11 +270,18 @@ function handleStart() {
 
 .form-item-nested {
   margin-bottom: 0 !important;
-  width: 100%;
+  min-width: 0;
 }
 
 .form-item-nested :deep(.el-form-item__content) {
   justify-content: flex-start;
+}
+
+.form-item-nested :deep(.el-form-item__label) {
+  font-size: 13px;
+  padding: 0 0 4px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .full-width {

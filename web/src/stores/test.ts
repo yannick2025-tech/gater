@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { TestResult, TestStatus } from '@/types/test'
 import { getTestResults, getTestStatus, startTest as startTestApi, configDownload } from '@/api/test'
 import type { ConfigItem } from '@/types/test'
 import { ElMessage } from 'element-plus'
+import { useDeviceStore } from '@/stores/device'
 
 export const useTestStore = defineStore('test', () => {
   const testResults = ref<TestResult[]>([])
@@ -39,9 +40,14 @@ export const useTestStore = defineStore('test', () => {
   }
 
   function startTestWithConfig(data: Record<string, unknown>) {
-    // Simplified: extract scenario and call appropriate API
     const scenario = (data.scenario as string) || 'basic_charging'
-    return startTest(scenario, '', data)
+    const deviceStore = useDeviceStore()
+    const gunNumber = deviceStore.deviceInfo.gunNumber
+    if (!gunNumber) {
+      ElMessage.warning('请先连接设备')
+      return Promise.reject(new Error('gunNumber missing'))
+    }
+    return startTest(scenario, gunNumber, data)
   }
 
   function exportReport() {

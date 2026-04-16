@@ -92,6 +92,8 @@
 
 <script setup lang="ts">
 
+import { computed } from 'vue'
+
 const MAX_ROWS = 48
 
 export interface PriceRow {
@@ -119,17 +121,15 @@ const emit = defineEmits<{
  */
 
 // 能否新增：最后一行结束时间不是23:59
-function canAdd() {
+const canAddRow = computed(() => {
   if (props.prices.length >= MAX_ROWS) return false
   if (props.prices.length === 0) return true
   const last = props.prices[props.prices.length - 1]
-  return last && last.endTime !== '23:59'
-}
-
-const canAddRow = canAdd()
+  return !!last && last.endTime !== '23:59'
+})
 
 function addRow() {
-  if (!canAdd()) return
+  if (!canAddRow.value) return
 
   const lastRow = props.prices[props.prices.length - 1]
   const newStart = lastRow ? lastRow.endTime : '00:00'
