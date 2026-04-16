@@ -2,6 +2,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -259,15 +260,24 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 	r.handleDisconnect(c, uint32(postNo))
 }
 
-// handleDisconnect 统一断开逻辑：清理Web注册表 + 清理TCP会话
+// handleDisconnect 统一断开逻辑：清理Web注册表 + 清理TCP会话 + 生成报告
 func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 	// 1. 从Web注册表移除
 	r.connRegistry.Unregister(postNo)
 
-	// 2. 如果有TCP会话也一并清理
+	// 2. 如果有TCP会话，关闭记录器、生成报告、移除会话
 	if sess, ok := r.sessMgr.GetByPostNo(postNo); ok {
+		// 关闭记录器（写日志尾）
 		if sess.Recorder != nil {
 			sess.Recorder.Close()
+			// 生成测试结果记录到数据库
+			summary := sess.Recorder.Summary()
+			if summary.TotalMessages > 0 || !sess.CreatedAt.IsZero() { // 有消息或已连接过就保存
+				err := report.SaveReport(summary, "XX标准协议", "v1.6.0")
+				if err != nil {
+					_ = fmt.Errorf("save report on disconnect: %w", err)
+				}
+			}
 		}
 		r.sessMgr.Remove(sess.ID)
 	}

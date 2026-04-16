@@ -13,16 +13,27 @@
       :header-cell-style="{ background: '#fafafa', color: '#666', fontWeight: '500' }"
       empty-text="暂无测试结果"
     >
-      <el-table-column prop="protocolName" label="测试用例名称" min-width="160" />
+      <el-table-column prop="protocolName" label="测试用例名称" min-width="160">
+        <template #default="{ row }">
+          <span>{{ getScenarioName(row.protocolName) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="测试结果" width="100" align="center">
         <template #default="{ row }">
-          <el-tag
-            :type="row.isPass ? 'success' : 'danger'"
-            effect="light"
-            round
-          >
-            {{ row.isPass ? '通过' : '失败' }}
-          </el-tag>
+          <template v-if="row.status === 'running'">
+            <el-tag type="warning" effect="light" round class="running-tag">
+              运行中
+            </el-tag>
+          </template>
+          <template v-else>
+            <el-tag
+              :type="row.isPass ? 'success' : 'danger'"
+              effect="light"
+              round
+            >
+              {{ row.isPass ? '通过' : '失败' }}
+            </el-tag>
+          </template>
         </template>
       </el-table-column>
       <el-table-column prop="startTime" label="测试时间" min-width="170" />
@@ -76,6 +87,16 @@ const total = ref(2)
 
 function handlePageChange(page: number) {
   // TODO: load page data
+}
+
+const scenarioNames: Record<string, string> = {
+  'basic_charging': '基础充电测试',
+  'sftp_upgrade': 'SFTP升级测试',
+  'config_download': '配置下发测试',
+}
+
+function getScenarioName(key: string): string {
+  return scenarioNames[key] || key
 }
 </script>
 
@@ -134,5 +155,14 @@ function handlePageChange(page: number) {
 .footer-right {
   display: flex;
   gap: 8px;
+}
+
+.running-tag {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 </style>

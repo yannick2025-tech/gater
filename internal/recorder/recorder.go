@@ -3,10 +3,14 @@ package recorder
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+
+	logging "github.com/yannick2025-tech/gwc-logging"
 )
 
 // MessageStatus 消息处理状态
@@ -57,8 +61,9 @@ type SessionRecorder struct {
 	startTime  time.Time
 	endTime    time.Time
 	mu         sync.RWMutex
-	records    []MessageRecord            // 所有消息记录
-	stats      map[statKey]*FuncCodeStat  // 按功能码+方向统计
+	records    []MessageRecord           // 所有消息记录
+	stats      map[statKey]*FuncCodeStat // 按功能码+方向统计
+	logger     logging.Logger             // session专用logger（预留）
 }
 
 type statKey struct {
@@ -66,14 +71,55 @@ type statKey struct {
 	Direction types.Direction
 }
 
-// NewSessionRecorder 创建会话记录器
+// logFile 全局共享的日志文件句柄
+var (
+	globalLogFile *os.File = nil
+	logMu         sync.Mutex
+)
+
+// logDir SESSION日志文件存放目录
+var logDir = "./data/logs"
+
+// NewSessionRecorder 创建会话记录器（使用全局共享日志文件）
 func NewSessionRecorder(sessionID string, postNo uint32) *SessionRecorder {
-	return &SessionRecorder{
+	_ = os.MkdirAll(logDir, 0755)
+
+	// 确保全局日志文件已打开（所有session共用一个）
+	ensureGlobalLog()
+
+	r := &SessionRecorder{
 		sessionID: sessionID,
 		postNo:    postNo,
 		startTime: time.Now(),
 		records:   make([]MessageRecord, 0),
 		stats:     make(map[statKey]*FuncCodeStat),
+	}
+
+	// 写入日志文件头
+	writeGlobalLog(fmt.Sprintf("========== SESSION START: %s | PostNo: %d | Time: %s ==========",
+		sessionID, postNo, r.startTime.Format("2006-01-02 15:04:05")))
+
+	return r
+}
+
+// ensureGlobalLog 确保全局日志文件已打开（线程安全）
+func ensureGlobalLog() {
+	logMu.Lock()
+	defer logMu.Unlock()
+	if globalLogFile != nil {
+		return // 已经打开了
+	}
+	logPath := filepath.Join(logDir, "sessions.log")
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		globalLogFile = f
+	}
+}
+
+// writeGlobalLog 向全局共享日志文件写入一行（带SESSIONID标识，方便排查）
+func writeGlobalLog(line string) {
+	if globalLogFile != nil {
+		globalLogFile.WriteString(time.Now().Format("[2006-01-02 15:04:05] ") + line + "\n")
 	}
 }
 
@@ -82,8 +128,9 @@ func (r *SessionRecorder) RecordRecv(funcCode byte, status MessageStatus, hexDat
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	now := time.Now()
 	rec := MessageRecord{
-		Timestamp: time.Now(),
+		Timestamp: now,
 		FuncCode:  funcCode,
 		Direction: types.DirectionUpload,
 		Status:    status,
@@ -93,6 +140,13 @@ func (r *SessionRecorder) RecordRecv(funcCode byte, status MessageStatus, hexDat
 	}
 	r.records = append(r.records, rec)
 	r.updateStat(funcCode, types.DirectionUpload, status)
+
+	// 实时写入日志（全局共享文件）
+	writeGlobalLog(fmt.Sprintf("[%s] [RECV ↑] [0x%02X] HEX: %s | JSON: %s | Status: %s",
+		r.sessionID, funcCode, hexData, jsonData, status))
+	if errMsg != "" {
+		writeGlobalLog(fmt.Sprintf("  └─ [%s] ERROR: %s", r.sessionID, errMsg))
+	}
 }
 
 // RecordSend 记录发送的消息（平台→充电桩）
@@ -100,8 +154,9 @@ func (r *SessionRecorder) RecordSend(funcCode byte, status MessageStatus, hexDat
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	now := time.Now()
 	rec := MessageRecord{
-		Timestamp: time.Now(),
+		Timestamp: now,
 		FuncCode:  funcCode,
 		Direction: types.DirectionDownload,
 		Status:    status,
@@ -111,6 +166,12 @@ func (r *SessionRecorder) RecordSend(funcCode byte, status MessageStatus, hexDat
 	}
 	r.records = append(r.records, rec)
 	r.updateStat(funcCode, types.DirectionDownload, status)
+
+	writeGlobalLog(fmt.Sprintf("[%s] [SEND ↓] [0x%02X] HEX: %s | JSON: %s | Status: %s",
+		r.sessionID, funcCode, hexData, jsonData, status))
+	if errMsg != "" {
+		writeGlobalLog(fmt.Sprintf("  └─ [%s] ERROR: %s", r.sessionID, errMsg))
+	}
 }
 
 // RecordReply 记录回复消息
@@ -118,8 +179,9 @@ func (r *SessionRecorder) RecordReply(funcCode byte, status MessageStatus, hexDa
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	now := time.Now()
 	rec := MessageRecord{
-		Timestamp: time.Now(),
+		Timestamp: now,
 		FuncCode:  funcCode,
 		Direction: types.DirectionReply,
 		Status:    status,
@@ -129,6 +191,12 @@ func (r *SessionRecorder) RecordReply(funcCode byte, status MessageStatus, hexDa
 	}
 	r.records = append(r.records, rec)
 	r.updateStat(funcCode, types.DirectionReply, status)
+
+	writeGlobalLog(fmt.Sprintf("[%s] [REPLY ↔] [0x%02X] HEX: %s | JSON: %s | Status: %s",
+		r.sessionID, funcCode, hexData, jsonData, status))
+	if errMsg != "" {
+		writeGlobalLog(fmt.Sprintf("  └─ [%s] ERROR: %s", r.sessionID, errMsg))
+	}
 }
 
 // updateStat 更新功能码统计
@@ -158,10 +226,18 @@ func (r *SessionRecorder) updateStat(funcCode byte, dir types.Direction, status 
 }
 
 // Close 关闭记录器（会话结束时调用）
+// 写入全局日志的SESSION END标记
 func (r *SessionRecorder) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.endTime = time.Now()
+
+	now := time.Now()
+	r.endTime = now
+
+	summary := r.Summary()
+	writeGlobalLog(fmt.Sprintf("========== SESSION END: %s | Duration: %s | TotalMsg: %d | Success: %d | Fail: %d | Pass: %v ==========",
+		r.sessionID, summary.Duration.String(),
+		summary.TotalMessages, summary.SuccessTotal, summary.FailTotal, summary.IsPass))
 }
 
 // GetStats 获取所有功能码统计

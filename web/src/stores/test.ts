@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { TestResult, TestStatus } from '@/types/test'
+import type { TestStatus } from '@/types/test'
 import { getTestResults, getTestStatus, startTest as startTestApi, configDownload } from '@/api/test'
 import type { ConfigItem } from '@/types/test'
 import { ElMessage } from 'element-plus'
 import { useDeviceStore } from '@/stores/device'
 
 export const useTestStore = defineStore('test', () => {
-  const testResults = ref<TestResult[]>([])
+  const testResults = ref<any[]>([])
   const total = ref(0)
   const currentPage = ref(1)
   const pageSize = ref(10)
@@ -32,6 +32,26 @@ export const useTestStore = defineStore('test', () => {
     try {
       const data = await startTestApi(testCase, gunNumber, params)
       currentStatus.value = data
+
+      // 立即插入一条运行中记录到结果列表（让用户看到测试已开始）
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+      const runningRecord: Record<string, any> = {
+        id: Date.now(),
+        sessionId: data.sessionId,
+        protocolName: testCase,
+        startTime: now,
+        endTime: '',
+        durationMs: 0,
+        totalMessages: 0,
+        successTotal: 0,
+        failTotal: 0,
+        successRate: 0,
+        isPass: false,
+        status: 'running',
+      }
+      testResults.value.unshift(runningRecord)
+      total.value += 1
+
       startPolling(data.sessionId)
       return data
     } finally {
@@ -88,6 +108,9 @@ export const useTestStore = defineStore('test', () => {
       pollTimer.value = null
     }
   }
+
+  // 页面加载时自动拉取历史测试结果（从MySQL）
+  fetchResults(1)
 
   return {
     testResults, total, currentPage, pageSize, loading, currentStatus,
