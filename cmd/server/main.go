@@ -75,6 +75,10 @@ func main() {
 	engine.Use(corsMiddleware())
 	router := api.NewRouter(sessMgr, scenarioEngine)
 	router.Setup(engine)
+
+	// API文档：YAML文件 + Swagger UI
+	engine.Static("/docs", "./docs/api")
+	engine.GET("/swagger", serveSwaggerUI)
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.HTTPPort),
 		Handler: engine,
@@ -357,4 +361,32 @@ func heartbeatCheckLoop(ctx context.Context, sessMgr *session.SessionManager,
 			}
 		}
 	}
+}
+
+// serveSwaggerUI 提供嵌入式 Swagger UI 页面，加载本地 openapi.yaml
+func serveSwaggerUI(c *gin.Context) {
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <title>NTS-Gater API Documentation</title>
+    <meta charset="utf-8"/>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+SwaggerUIBundle({
+    url: "/docs/openapi.yaml",
+    dom_id: '#swagger-ui',
+    presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIBundle.SwaggerUIStandalonePreset
+    ],
+    layout: "BaseLayout"
+})
+</script>
+</body>
+</html>`
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
 }
