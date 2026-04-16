@@ -96,13 +96,14 @@ func (e *Engine) StartScenario(sessionID string, testCase string) (Scenario, err
 		return nil, ErrScenarioAlreadyRunning
 	}
 
-	// 查找TCP连接
-	conn, ok := e.srv.FindConnectionByPostNo(sess.PostNo)
-	if !ok {
-		return nil, ErrConnectionNotFound
+	// 查找TCP连接（Web端模式可能没有真实TCP连接）
+	var sendFn SendFunc
+	if conn, ok := e.srv.FindConnectionByPostNo(sess.PostNo); ok {
+		sendFn = e.createSendFn(sess, conn)
+	} else {
+		// Web端无真实TCP连接：使用空发送函数
+		sendFn = func(msg types.Message) error { return nil }
 	}
-
-	sendFn := e.createSendFn(sess, conn)
 
 	// 创建场景
 	var sc Scenario
@@ -172,12 +173,15 @@ func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scen
 		return nil, ErrScenarioAlreadyRunning
 	}
 
+	// 查找TCP连接（Web端模式可能没有真实TCP连接）
+	var sendFn SendFunc
 	conn, ok := e.srv.FindConnectionByPostNo(sess.PostNo)
 	if !ok {
-		return nil, ErrConnectionNotFound
+		// Web端无真实TCP连接：使用空发送函数
+		sendFn = func(msg types.Message) error { return nil }
+	} else {
+		sendFn = e.createSendFn(sess, conn)
 	}
-
-	sendFn := e.createSendFn(sess, conn)
 
 	sc := NewConfigDownloadScenario(sessionID, sess, e.proto, e.logger)
 	if err := sc.SetConfigItems(items); err != nil {

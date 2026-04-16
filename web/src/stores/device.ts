@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { DeviceInfo } from '@/types/device'
-import { getDeviceStatus, disconnectDevice } from '@/api/device'
+import { getDeviceStatus, disconnectDevice, connectDevice } from '@/api/device'
 
 export const useDeviceStore = defineStore('device', () => {
   const deviceInfo = ref<DeviceInfo>({
@@ -32,20 +32,16 @@ export const useDeviceStore = defineStore('device', () => {
     loading.value = true
     try {
       deviceInfo.value.gunNumber = gunNumber
-      // 调用后端接口查询设备状态（连接成功即认为在线）
-      const data = await getDeviceStatus(gunNumber)
-      deviceInfo.value = { ...deviceInfo.value, ...data }
-      // 连接成功强制设为在线
+      // 调用后端连接注册接口，在 connRegistry 中标记设备为已连接
+      await connectDevice(gunNumber)
       deviceInfo.value.isOnline = true
-      // 确保协议信息也同步过来
       if (!deviceInfo.value.protocolName) {
-        deviceInfo.value.protocolName = data.protocolName || ''
+        deviceInfo.value.protocolName = 'XX标准协议'
       }
       if (!deviceInfo.value.protocolVersion) {
-        deviceInfo.value.protocolVersion = data.protocolVersion || ''
+        deviceInfo.value.protocolVersion = 'v1.6.0'
       }
     } catch (e) {
-      // 接口调用失败保持离线
       deviceInfo.value.isOnline = false
       throw e
     } finally {

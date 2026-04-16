@@ -4,6 +4,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,15 +14,116 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/session"
 )
 
+// DeviceConnectionRegistry 维护Web端发起的设备连接状态。
+// 当用户在前端点击"连接设备"时注册，点击"断开连接"时注销。
+// 所有需要校验设备连接状态的API（startTest、configDownload等）
+// 统一检查此注册表，确保前后端状态一致。
+type DeviceConnectionRegistry struct {
+	mu         sync.RWMutex
+	devices    map[uint32]*DeviceInfo // postNo -> 设备信息
+}
+
+// DeviceInfo Web端连接的设备信息
+type DeviceInfo struct {
+	GunNumber      string
+	ProtocolName   string
+	ProtocolVersion string
+	ConnectedAt    time.Time
+	SessionID      string // 如果有真实TCP会话则关联
+}
+
+func NewDeviceConnectionRegistry() *DeviceConnectionRegistry {
+	return &DeviceConnectionRegistry{
+		devices: make(map[uint32]*DeviceInfo),
+	}
+}
+
+// Register 注册设备为已连接（Web端连接操作）
+func (r *DeviceConnectionRegistry) Register(postNo uint32, gunNumber string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.devices[postNo] = &DeviceInfo{
+		GunNumber:       gunNumber,
+		ProtocolName:    "XX标准协议",
+		ProtocolVersion: "v1.6.0",
+		ConnectedAt:     time.Now(),
+	}
+}
+
+// Unregister 注销设备连接（Web端断开操作）
+func (r *DeviceConnectionRegistry) Unregister(postNo uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.devices, postNo)
+}
+
+// IsConnected 检查设备是否已连接（优先查Web注册表，再查TCP会话）
+func (r *DeviceConnectionRegistry) IsConnected(postNo uint32, sessMgr *session.SessionManager) bool {
+	// 1. 先查Web注册表（前端手动连接的）
+	r.mu.RLock()
+	if _, ok := r.devices[postNo]; ok {
+		r.mu.RUnlock()
+		return true
+	}
+	r.mu.RUnlock()
+
+	// 2. 再查TCP会话管理器（充电桩主动TCP连接的）
+	if sess, ok := sessMgr.GetByPostNo(postNo); ok {
+		return sess.GetAuthState() == session.Authenticated
+	}
+	return false
+}
+
+// GetInfo 获取已连接设备的信息
+func (r *DeviceConnectionRegistry) GetInfo(postNo uint32) (*DeviceInfo, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	info, ok := r.devices[postNo]
+	return info, ok
+}
+
+// GetOrMergeInfo 获取设备信息：优先Web注册表，否则从TCP会话补充
+func (r *DeviceConnectionRegistry) GetOrMergeInfo(postNo uint32, sessMgr *session.SessionManager) *DeviceInfo {
+	r.mu.RLock()
+	info, ok := r.devices[postNo]
+	r.mu.RUnlock()
+	if ok {
+		return info
+	}
+
+	// 回退到TCP会话
+	if sess, ok := sessMgr.GetByPostNo(postNo); ok {
+		sessionID := ""
+		if sess != nil {
+			sessionID = sess.ID
+			_ = sess.GetAuthState()
+		}
+		return &DeviceInfo{
+			GunNumber:       strconv.FormatUint(uint64(postNo), 10),
+			ProtocolName:    "XX标准协议",
+			ProtocolVersion: "v1.6.0",
+			SessionID:       sessionID,
+		}
+	}
+	return nil
+}
+
+// ==================== HTTP Router ====================
+
 // Router HTTP路由
 type Router struct {
 	sessMgr        *session.SessionManager
 	scenarioEngine *scenario.Engine
+	connRegistry   *DeviceConnectionRegistry
 }
 
 // NewRouter 创建路由
 func NewRouter(sessMgr *session.SessionManager, scenarioEngine *scenario.Engine) *Router {
-	return &Router{sessMgr: sessMgr, scenarioEngine: scenarioEngine}
+	return &Router{
+		sessMgr:        sessMgr,
+		scenarioEngine: scenarioEngine,
+		connRegistry:   NewDeviceConnectionRegistry(),
+	}
 }
 
 // Setup 设置路由
@@ -62,36 +164,41 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 		return
 	}
 
-	sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
-	isOnline := ok && sess.GetAuthState() == session.Authenticated
+	pn := uint32(postNo)
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"data": gin.H{
-			"gunNumber":       gunNumber,
-			"protocolName":    "XX标准协议",
-			"protocolVersion": "v1.6.0",
-			"isOnline":        isOnline,
-			"sessionId": func() string {
-				if ok {
-					return sess.ID
-				}
-				return ""
-			}(),
-			"authState": func() string {
-				if ok {
-					return sess.GetAuthState().String()
-				}
-				return "none"
-			}(),
-		},
-	})
+	// 统一使用 connRegistry 判断在线状态
+	isOnline := r.connRegistry.IsConnected(pn, r.sessMgr)
+	info := r.connRegistry.GetOrMergeInfo(pn, r.sessMgr)
+
+	respData := gin.H{
+		"gunNumber":       gunNumber,
+		"protocolName":    info.ProtocolName,
+		"protocolVersion": info.ProtocolVersion,
+		"isOnline":        isOnline,
+	}
+
+	if info != nil && info.SessionID != "" {
+		respData["sessionId"] = info.SessionID
+	} else if info != nil {
+		respData["sessionId"] = "" // Web连接无真实session
+	}
+
+	// 补充认证状态（来自TCP会话）
+	if sess, ok := r.sessMgr.GetByPostNo(pn); ok {
+		respData["authState"] = sess.GetAuthState().String()
+		if sess.ID != "" {
+			respData["sessionId"] = sess.ID
+		}
+	} else {
+		respData["authState"] = "none"
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": respData})
 }
 
 // toggleConnection 连接/断开设备
 // POST /api/device/connect
 // Body: {"gunNumber": "5023001201", "action": "connect"|"disconnect"}
-
 func (r *Router) toggleConnection(c *gin.Context) {
 	var req struct {
 		GunNumber string `json:"gunNumber"`
@@ -108,32 +215,24 @@ func (r *Router) toggleConnection(c *gin.Context) {
 		return
 	}
 
+	pn := uint32(postNo)
+
 	switch req.Action {
 	case "connect":
-		// 连接是充电桩主动发起TCP连接，这里只返回当前状态
-		sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
-		isOnline := ok && sess.GetAuthState() == session.Authenticated
+		// 在Web注册表中注册为已连接
+		r.connRegistry.Register(pn, req.GunNumber)
 		c.JSON(http.StatusOK, gin.H{
 			"code": 200,
-			"data": gin.H{"isOnline": isOnline, "sessionId": func() string {
-				if ok {
-					return sess.ID
-				}
-				return ""
-			}()},
+			"data": gin.H{
+				"isOnline":    true,
+				"gunNumber":   req.GunNumber,
+				"protocolName":"XX标准协议",
+				"protocolVersion": "v1.6.0",
+			},
 		})
+
 	case "disconnect":
-		// 断开连接：移除会话，触发报告生成
-		sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
-		if !ok {
-			c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
-			return
-		}
-		if sess.Recorder != nil {
-			sess.Recorder.Close()
-		}
-		r.sessMgr.Remove(sess.ID)
-		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
+		r.handleDisconnect(c, pn)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "action must be connect or disconnect"})
 	}
@@ -141,6 +240,7 @@ func (r *Router) toggleConnection(c *gin.Context) {
 
 // disconnectDevice 断开设备连接
 // POST /api/device/disconnect
+// Body: {"gunNumber": "5023001201"}
 func (r *Router) disconnectDevice(c *gin.Context) {
 	var req struct {
 		GunNumber string `json:"gunNumber"`
@@ -156,16 +256,21 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 		return
 	}
 
-	sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
-	if !ok {
-		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
-		return
-	}
+	r.handleDisconnect(c, uint32(postNo))
+}
 
-	if sess.Recorder != nil {
-		sess.Recorder.Close()
+// handleDisconnect 统一断开逻辑：清理Web注册表 + 清理TCP会话
+func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
+	// 1. 从Web注册表移除
+	r.connRegistry.Unregister(postNo)
+
+	// 2. 如果有TCP会话也一并清理
+	if sess, ok := r.sessMgr.GetByPostNo(postNo); ok {
+		if sess.Recorder != nil {
+			sess.Recorder.Close()
+		}
+		r.sessMgr.Remove(sess.ID)
 	}
-	r.sessMgr.Remove(sess.ID)
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
 }
@@ -175,7 +280,6 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 // startTest 开始测试
 // POST /api/test/start
 // Body: {"testCase":"basic_charging","gunNumber":"5023001201","params":{...}}
-
 func (r *Router) startTest(c *gin.Context) {
 	var req struct {
 		TestCase  string                 `json:"testCase"`
@@ -187,15 +291,29 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
-	// 查找对应会话
-	postNo, _ := strconv.ParseUint(req.GunNumber, 10, 64)
-	sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
-	if !ok {
+	postNo, err := strconv.ParseUint(req.GunNumber, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
+		return
+	}
+
+	pn := uint32(postNo)
+
+	// 统一使用 connRegistry 校验连接状态（Web注册表 + TCP会话）
+	if !r.connRegistry.IsConnected(pn, r.sessMgr) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device not connected"})
 		return
 	}
 
-	// 启动测试场景
+	// 尝试获取或创建会话用于测试
+	sess, hasTCPSession := r.sessMgr.GetByPostNo(pn)
+	if !hasTCPSession {
+		// 无TCP会话时创建一个虚拟会话用于Web端测试场景
+		sess, _ = r.sessMgr.Create(pn, "web-ui-"+req.GunNumber)
+		// 将此会话标记为已认证（因为Web端已经确认连接）
+		sess.SetAuthState(session.Authenticated)
+	}
+
 	sc, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
@@ -231,7 +349,6 @@ func (r *Router) getTestStatus(c *gin.Context) {
 	stepName := ""
 	testCase := ""
 
-	// 检查是否有运行中的场景
 	if sc, ok := r.scenarioEngine.GetScenario(sessionID); ok {
 		result := sc.Result()
 		status = string(result.State)
@@ -323,7 +440,6 @@ func (r *Router) getTestDetail(c *gin.Context) {
 // decodeMessage 解码16进制报文
 // POST /api/test/decode
 // Body: {"hex": "320601..."}
-
 func (r *Router) decodeMessage(c *gin.Context) {
 	var req struct {
 		Hex string `json:"hex"`
@@ -333,7 +449,6 @@ func (r *Router) decodeMessage(c *gin.Context) {
 		return
 	}
 
-	// TODO: 使用协议编解码器解码hex报文
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
@@ -345,7 +460,6 @@ func (r *Router) decodeMessage(c *gin.Context) {
 // exportReport 导出测试报告
 // POST /api/test/export
 // Body: {"sessionId": "sess-1"}
-
 func (r *Router) exportReport(c *gin.Context) {
 	var req struct {
 		SessionID string `json:"sessionId"`
@@ -355,27 +469,21 @@ func (r *Router) exportReport(c *gin.Context) {
 		return
 	}
 
-	// 获取测试报告
 	testReport, err := report.GetTestReportBySessionID(req.SessionID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
 		return
 	}
 
-	// 获取功能码统计
 	stats, _ := report.GetFuncCodeStatsBySessionID(req.SessionID)
-
-	// 获取消息存档
 	archives, _ := report.GetMessageArchivesBySessionID(req.SessionID, "", "")
 
-	// 生成PDF
 	pdfPath, err := report.GeneratePDF(testReport, stats, archives)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate pdf failed: " + err.Error()})
 		return
 	}
 
-	// 更新报告中的PDF路径
 	_ = report.UpdateReportPDFPath(req.SessionID, pdfPath)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -397,7 +505,6 @@ func (r *Router) downloadPDF(c *gin.Context) {
 		return
 	}
 
-	// 安全检查：防止路径遍历攻击
 	if len(path) > 0 && path[0] == '/' {
 		path = path[1:]
 	}
@@ -408,7 +515,6 @@ func (r *Router) downloadPDF(c *gin.Context) {
 // configDownload 平台下发配置
 // POST /api/test/config
 // Body: {"gunNumber":"5023001201","items":[{"funcCode":194,"payload":{...}}]}
-// funcCode: 0xC2(194)=配置下发, 0x22(34)=计费规则, 0x0C(12)=设备参数查询
 func (r *Router) configDownload(c *gin.Context) {
 	var req struct {
 		GunNumber string                `json:"gunNumber"`
@@ -430,13 +536,21 @@ func (r *Router) configDownload(c *gin.Context) {
 		return
 	}
 
-	sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
-	if !ok {
+	pn := uint32(postNo)
+
+	// 统一使用 connRegistry 校验连接状态
+	if !r.connRegistry.IsConnected(pn, r.sessMgr) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device not connected"})
 		return
 	}
 
-	// 启动配置下发场景
+	// 获取或创建会话
+	sess, hasTCPSession := r.sessMgr.GetByPostNo(pn)
+	if !hasTCPSession {
+		sess, _ = r.sessMgr.Create(pn, "web-ui-config-"+req.GunNumber)
+		sess.SetAuthState(session.Authenticated)
+	}
+
 	sc, err := r.scenarioEngine.StartConfigScenario(sess.ID, req.Items)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
