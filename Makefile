@@ -1,4 +1,4 @@
-.PHONY: build run test clean tidy lint
+.PHONY: build run test clean tidy lint web web-dev dev
 
 # 项目名称
 APP_NAME := nts-gater
@@ -12,6 +12,9 @@ GOBUILD := $(GOCMD) build
 GOTEST := $(GOCMD) test
 GOFMT := gofmt
 GOLINT := golangci-lint
+
+# Web 目录
+WEB_DIR := web
 
 # 主入口
 MAIN_PKG := ./cmd/server
@@ -51,10 +54,26 @@ fmt:
 lint:
 	$(GOLINT) run ./...
 
+## web: 构建前端
+web:
+	@echo "Building frontend..."
+	cd $(WEB_DIR) && npm install && npm run build
+	@echo "Frontend build complete: $(WEB_DIR)/dist/"
+
+## web-dev: 启动前端开发服务器
+web-dev:
+	cd $(WEB_DIR) && npm run dev
+
+## dev: 同时启动后端和前端开发服务器
+dev:
+	@echo "Starting dev environment..."
+	@$(MAKE) run & $(MAKE) web-dev
+
 ## clean: 清理构建产物
 clean:
 	@rm -rf $(BUILD_DIR)
 	@rm -f coverage.out coverage.html
+	@rm -rf $(WEB_DIR)/dist
 	@echo "Clean complete"
 
 ## help: 显示帮助

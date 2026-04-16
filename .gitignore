@@ -52,3 +52,7 @@ configs/config.local.yaml
 
 # temp files
 .understand-anything/
+
+# Frontend
+web/node_modules/
+web/dist/

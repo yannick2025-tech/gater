@@ -79,6 +79,17 @@ func main() {
 	// API文档：YAML文件 + Swagger UI
 	engine.Static("/docs", "./docs/api")
 	engine.GET("/swagger", serveSwaggerUI)
+
+	// 前端静态文件（生产模式：服务 web/dist 目录）
+	engine.Static("/assets", "./web/dist/assets")
+	engine.NoRoute(func(c *gin.Context) {
+		// SPA fallback: 非API请求返回 index.html
+		if len(c.Request.URL.Path) >= 4 && c.Request.URL.Path[:4] == "/api" {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "not found"})
+			return
+		}
+		c.File("./web/dist/index.html")
+	})
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.HTTPPort),
 		Handler: engine,
