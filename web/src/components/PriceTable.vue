@@ -1,114 +1,238 @@
 <template>
-  <div>
-    <div class="flex items-center justify-between mb-2">
-      <label class="text-sm">
-        价格时段表 <span class="text-red-500">*</span>
-      </label>
-      <div class="flex gap-2">
-        <el-button size="small" :disabled="isLoading || priceRows.length >= 48" @click="addRow">
-          <Plus class="w-4 h-4" />
-        </el-button>
-        <el-button size="small" :disabled="isLoading || priceRows.length <= 1" @click="deleteLastRow">
-          <Minus class="w-4 h-4" />
-        </el-button>
-      </div>
-    </div>
-
-    <div class="border rounded overflow-auto max-h-96">
-      <el-table :data="priceRows" stripe size="small">
-        <el-table-column label="时段类型" width="130">
-          <template #default="{ row }">
-            <el-select v-model="row.periodType" placeholder="选择" :disabled="isLoading" size="small">
-              <el-option label="尖峰" value="peak" />
-              <el-option label="高峰" value="high" />
-              <el-option label="平段" value="flat" />
-              <el-option label="低谷" value="valley" />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="开始时间" width="140">
-          <template #default="{ row }">
-            <el-time-select v-model="row.startTime" :disabled="isLoading" size="small" start="00:00" end="23:59" step="00:30" />
-          </template>
-        </el-table-column>
-        <el-table-column label="结束时间" width="140">
-          <template #default="{ row }">
-            <el-time-select v-model="row.endTime" :disabled="isLoading" size="small" start="00:00" end="23:59" step="00:30" />
-          </template>
-        </el-table-column>
-        <el-table-column label="电费(元)" width="130">
-          <template #default="{ row }">
-            <el-input v-model="row.electricityFee" type="number" placeholder="0.0000" :disabled="isLoading" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="服务费(元)" width="130">
-          <template #default="{ row }">
-            <el-input v-model="row.serviceFee" type="number" placeholder="0.0000" :disabled="isLoading" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="70" fixed="right">
-          <template #default="{ $index }">
+  <div class="price-table-wrapper">
+    <table class="price-table">
+      <thead>
+        <tr>
+          <th>时段开始</th>
+          <th>时段结束</th>
+          <th>电费(元/kWh)</th>
+          <th>服务费(元/kWh)</th>
+          <th width="40"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="(row, idx) in prices" :key="idx">
+          <!-- 时段开始：第一行固定00:00，其他自动=上一行结束 -->
+          <td class="time-cell">
+            <el-time-select
+              :model-value="row.startTime"
+              start="00:00"
+              step="01:00"
+              end="23:59"
+              placeholder="--:--"
+              size="small"
+              :disabled="true"
+            />
+          </td>
+          <!-- 时段结束 -->
+          <td class="time-cell">
+            <el-time-select
+              :model-value="row.endTime"
+              start="00:00"
+              step="01:00"
+              end="23:59"
+              placeholder="--:--"
+              size="small"
+              @change="(v: string | undefined) => onEndTimeChange(idx, v)"
+            />
+          </td>
+          <!-- 电费 - 精度4位小数 -->
+          <td>
+            <el-input-number
+              :model-value="row.electricityFee"
+              :min="0"
+              :precision="4"
+              controls-position="right"
+              size="small"
+              style="width: 130px"
+              @change="(v: number | undefined) => updateFee(idx, 'electricityFee', v)"
+            />
+          </td>
+          <!-- 服务费 - 精度4位小数 -->
+          <td>
+            <el-input-number
+              :model-value="row.serviceFee"
+              :min="0"
+              :precision="4"
+              controls-position="right"
+              size="small"
+              style="width: 130px"
+              @change="(v: number | undefined) => updateFee(idx, 'serviceFee', v)"
+            />
+          </td>
+          <td class="action-col">
             <el-button
               type="danger"
-              text
+              link
               size="small"
-              :disabled="isLoading || priceRows.length <= 1"
-              @click="deleteRow($index)"
+              :disabled="prices.length <= 1"
+              @click="removeRow(idx)"
             >
-              <Minus class="w-4 h-4" />
+              删除
             </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </td>
+        </tr>
+        <tr v-if="prices.length === 0">
+          <td colspan="5" class="empty-row">暂无配置，点击下方按钮添加</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="add-row-btn">
+      <el-button
+        type="primary" plain size="small"
+        :disabled="!canAddRow || prices.length >= MAX_ROWS"
+        @click="addRow"
+      >
+        + 添加时段
+      </el-button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Plus, Minus } from 'lucide-vue-next'
-import type { PriceRow } from '@/types/test'
+
+const MAX_ROWS = 48
+
+export interface PriceRow {
+  startTime: string
+  endTime: string
+  electricityFee: number
+  serviceFee: number
+}
 
 const props = defineProps<{
-  modelValue: PriceRow[]
-  isLoading: boolean
+  prices: PriceRow[]
 }>()
 
 const emit = defineEmits<{
-  'update:modelValue': [rows: PriceRow[]]
+  'update:prices': [val: PriceRow[]]
 }>()
 
-const priceRows = computed({
-  get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value),
-})
+/**
+ * 核心规则：
+ * 1. 默认一行：00:00 ~ 23:59
+ * 2. 新增条件：最后一行的 endTime != "23:59"
+ * 3. 新增行：startTime = 上行endTime，endTime = 23:59
+ * 4. 删除后：最后一行 endTime 自动补为 23:59
+ * 5. 全部时段必须连续覆盖 00:00 ~ 23:59，不重复不中断
+ */
+
+// 能否新增：最后一行结束时间不是23:59
+function canAdd() {
+  if (props.prices.length >= MAX_ROWS) return false
+  if (props.prices.length === 0) return true
+  const last = props.prices[props.prices.length - 1]
+  return last && last.endTime !== '23:59'
+}
+
+const canAddRow = canAdd()
 
 function addRow() {
-  if (priceRows.value.length < 48) {
-    const lastRow = priceRows.value[priceRows.value.length - 1]
-    priceRows.value = [
-      ...priceRows.value,
-      {
-        id: Date.now().toString(),
-        periodType: '',
-        startTime: lastRow?.endTime || '00:00',
-        endTime: '23:59',
-        electricityFee: '',
-        serviceFee: '',
-      },
-    ]
+  if (!canAdd()) return
+
+  const lastRow = props.prices[props.prices.length - 1]
+  const newStart = lastRow ? lastRow.endTime : '00:00'
+  const newRow: PriceRow = {
+    startTime: newStart,
+    endTime: '23:59',
+    electricityFee: 0,
+    serviceFee: 0,
   }
+  emit('update:prices', [...props.prices, newRow])
 }
 
-function deleteLastRow() {
-  if (priceRows.value.length > 1) {
-    priceRows.value = priceRows.value.slice(0, -1)
+function removeRow(idx: number) {
+  if (props.prices.length <= 1) return
+
+  const newPrices: PriceRow[] = []
+  for (let i = 0; i < props.prices.length; i++) {
+    if (i !== idx) {
+      newPrices.push({ ...props.prices[i] })
+    }
   }
+
+  // 删除后末行必须以23:59结尾（保持完整覆盖）
+  if (newPrices.length > 0) {
+    newPrices[newPrices.length - 1].endTime = '23:59'
+  }
+
+  emit('update:prices', newPrices)
 }
 
-function deleteRow(index: number) {
-  if (priceRows.value.length > 1) {
-    priceRows.value = priceRows.value.filter((_, i) => i !== index)
+function onEndTimeChange(idx: number, val: string | undefined) {
+  if (!val) return
+  const newPrices = props.prices.map((row, i) =>
+    i === idx ? { ...row, endTime: val } : { ...row }
+  )
+
+  // 修改某行结束时，下一行（如果有）的开始时间自动衔接
+  if (idx < newPrices.length - 1) {
+    newPrices[idx + 1] = { ...newPrices[idx + 1], startTime: val }
+
+    // 如果下一行的新开始时间 >= 它自己的结束时间，则自动调整下一行结束时间
+    if (timeToMinutes(val) >= timeToMinutes(newPrices[idx + 1].endTime)) {
+      newPrices[idx + 1] = { ...newPrices[idx + 1], endTime: '23:59' }
+    }
   }
+
+  emit('update:prices', newPrices)
+}
+
+function updateFee(idx: number, field: 'electricityFee' | 'serviceFee', val: number | undefined) {
+  const newPrices = props.prices.map((row, i) =>
+    i === idx ? { ...row, [field]: val ?? 0 } : { ...row }
+  )
+  emit('update:prices', newPrices)
+}
+
+/** "HH:mm" -> 分钟数 */
+function timeToMinutes(t: string): number {
+  if (!t) return 0
+  const parts = t.split(':')
+  return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0)
 }
 </script>
+
+<style scoped>
+.price-table-wrapper {
+  font-size: 13px;
+}
+
+.price-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.price-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: #666;
+  font-weight: 500;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+}
+
+.price-table td {
+  padding: 8px 4px;
+  vertical-align: middle;
+}
+
+.time-cell .el-select {
+  width: 110px !important;
+}
+
+.action-col {
+  text-align: center;
+}
+
+.empty-row {
+  text-align: center;
+  color: #ccc;
+  padding: 16px !important;
+}
+
+.add-row-btn {
+  margin-top: 8px;
+}
+</style>

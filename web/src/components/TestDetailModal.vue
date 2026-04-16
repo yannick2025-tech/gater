@@ -1,145 +1,192 @@
 <template>
   <el-dialog
-    v-model="dialogVisible"
-    title="测试用例详情"
-    width="90%"
+    v-model="visible"
+    title="测试详情"
+    width="720px"
     :close-on-click-modal="false"
-    destroy-on-close
+    class="detail-dialog"
   >
-    <div v-loading="loading" class="space-y-6">
-      <template v-if="detail">
-        <div class="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded">
-          <div>
-            <div class="text-gray-500 text-xs mb-1">Session ID</div>
-            <div class="font-medium text-sm">{{ detail.sessionId }}</div>
+    <div class="detail-body">
+      <!-- Left: Stats -->
+      <div class="stats-panel">
+        <h4 class="panel-title">测试统计</h4>
+        <div class="stat-grid">
+          <div class="stat-item">
+            <span class="stat-value">{{ detail.totalMessages }}</span>
+            <span class="stat-label">总报文数</span>
           </div>
-          <div>
-            <div class="text-gray-500 text-xs mb-1">开始时间</div>
-            <div class="font-medium text-sm">{{ formatTime(detail.startTime) }}</div>
+          <div class="stat-item">
+            <span class="stat-value success">{{ detail.successCount }}</span>
+            <span class="stat-label">通过</span>
           </div>
-          <div>
-            <div class="text-gray-500 text-xs mb-1">结束时间</div>
-            <div class="font-medium text-sm">{{ formatTime(detail.endTime) }}</div>
+          <div class="stat-item">
+            <span class="stat-value danger">{{ detail.failureCount }}</span>
+            <span class="stat-label">失败</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ detail.duration }}</span>
+            <span class="stat-label">耗时</span>
           </div>
         </div>
-
-        <div class="flex items-center justify-center py-2">
-          <el-tag
-            :type="detail.status === 'pass' ? 'success' : 'danger'"
-            size="large"
-            :style="{
-              backgroundColor: detail.status === 'pass' ? '#52C41A' : '#FF4D4F',
-              color: 'white',
-              fontSize: '1.1rem',
-              padding: '8px 28px',
-              border: 'none',
-            }"
-          >
-            {{ detail.status === 'pass' ? '测试通过' : '测试失败' }}
-          </el-tag>
+        <div class="stat-rate">
+          <span>成功率：</span>
+          <strong>{{ detail.successRate }}%</strong>
         </div>
+      </div>
 
-        <el-table :data="detail.statistics" border stripe size="small">
-          <el-table-column prop="funcCode" label="功能码" width="80" />
-          <el-table-column prop="direction" label="方向" width="120" />
-          <el-table-column prop="totalMessages" label="总数" width="70" align="right" />
-          <el-table-column prop="successCount" label="成功" width="70" align="right" />
-          <el-table-column label="消息丢失" width="80" align="right">
+      <!-- Right: Summary Table -->
+      <div class="summary-panel">
+        <h4 class="panel-title">结果汇总</h4>
+        <el-table
+          :data="detail.summary"
+          size="small"
+          border
+          style="width: 100%"
+          max-height="320px"
+          :header-cell-style="{ background: '#fafafa', color: '#666', fontWeight: '500', fontSize: '12px' }"
+        >
+          <el-table-column prop="step" label="步骤" min-width="80" />
+          <el-table-column prop="messageType" label="报文类型" min-width="100" />
+          <el-table-column prop="result" label="结果" width="70" align="center">
             <template #default="{ row }">
-              <span :class="{ 'text-red-600': row.messageLoss > 0 }">{{ row.messageLoss }}</span>
+              <el-tag
+                :type="row.result === 'pass' ? 'success' : 'danger'"
+                size="small"
+                effect="light"
+              >
+                {{ row.result === 'pass' ? '通过' : '失败' }}
+              </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="解码失败" width="80" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-red-600': row.decodeFail > 0 }">{{ row.decodeFail }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="字段非法" width="80" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-red-600': row.invalidField > 0 }">{{ row.invalidField }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="成功率" width="80" align="right">
-            <template #default="{ row }">
-              <span :style="{ color: row.successRate >= 100 ? '#52C41A' : '#EA933F' }">
-                {{ row.successRate.toFixed(1) }}%
-              </span>
-            </template>
-          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
         </el-table>
-
-        <div class="grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded text-center">
-          <div>
-            <div class="text-gray-500 text-xs mb-1">总消息数</div>
-            <div class="font-medium">{{ totalMessages }}</div>
-          </div>
-          <div>
-            <div class="text-gray-500 text-xs mb-1">成功总数</div>
-            <div class="font-medium" style="color: #52C41A">{{ successTotal }}</div>
-          </div>
-          <div>
-            <div class="text-gray-500 text-xs mb-1">失败总数</div>
-            <div class="font-medium" style="color: #FF4D4F">{{ failTotal }}</div>
-          </div>
-          <div>
-            <div class="text-gray-500 text-xs mb-1">总体成功率</div>
-            <div class="font-medium">{{ overallRate }}%</div>
-          </div>
-        </div>
-      </template>
+      </div>
     </div>
 
+    <!-- Footer -->
     <template #footer>
-      <el-button @click="dialogVisible = false">关闭</el-button>
+      <el-button
+        v-if="testId"
+        @click="$emit('view-messages', testId)"
+        type="primary"
+        plain
+        size="small"
+      >
+        查看测试结果中的报文
+      </el-button>
+      <el-button @click="visible = false" size="small">关闭</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import dayjs from 'dayjs'
-import { getTestDetail } from '@/api/test'
-import type { TestDetail } from '@/types/test'
+import { computed } from 'vue'
 
 const props = defineProps<{
-  visible: boolean
-  sessionId: string
+  modelValue: boolean
+  testId?: number | null
 }>()
 
 const emit = defineEmits<{
-  'update:visible': [value: boolean]
+  'update:modelValue': [val: boolean]
+  'view-messages': [id: number]
 }>()
 
-const dialogVisible = computed({
-  get: () => props.visible,
-  set: (value) => emit('update:visible', value),
+const visible = computed({
+  get: () => props.modelValue,
+  set: (v) => emit('update:modelValue', v),
 })
 
-const loading = ref(false)
-const detail = ref<TestDetail | null>(null)
-
-watch(() => props.visible, async (val) => {
-  if (val && props.sessionId) {
-    loading.value = true
-    try {
-      detail.value = await getTestDetail(props.sessionId)
-    } catch {
-      detail.value = null
-    } finally {
-      loading.value = false
-    }
-  }
-})
-
-const totalMessages = computed(() => detail.value?.statistics.reduce((s, r) => s + r.totalMessages, 0) || 0)
-const successTotal = computed(() => detail.value?.statistics.reduce((s, r) => s + r.successCount, 0) || 0)
-const failTotal = computed(() => detail.value?.statistics.reduce((s, r) => s + r.messageLoss + r.decodeFail + r.invalidField, 0) || 0)
-const overallRate = computed(() => {
-  if (!totalMessages.value) return 0
-  return ((successTotal.value / totalMessages.value) * 100).toFixed(1)
-})
-
-function formatTime(t: string) {
-  return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-'
-}
+// Mock data - replace with real API response
+const detail = computed(() => ({
+  totalMessages: 24,
+  successCount: 22,
+  failureCount: 2,
+  duration: '3m 12s',
+  successRate: 91.7,
+  summary: [
+    { step: '1', messageType: 'BootNotification', result: 'pass', remark: '设备启动通知' },
+    { step: '2', messageType: 'Heartbeat', result: 'pass', remark: '心跳正常' },
+    { step: '3', messageType: 'StatusNotification', result: 'pass', remark: '状态上报' },
+    { step: '4', messageType: 'Authorize', result: 'fail', remark: '鉴权超时' },
+    { step: '5', messageType: 'StartTransaction', result: 'pass', remark: '开始充电' },
+    { step: '6', messageType: 'MeterValues', result: 'pass', remark: '计量数据' },
+    { step: '7', messageType: 'StopTransaction', result: 'fail', remark: '停止异常' },
+  ],
+}))
 </script>
+
+<style scoped>
+.detail-body {
+  display: flex;
+  gap: 20px;
+}
+
+.stats-panel {
+  flex: 0 0 200px;
+  padding: 16px;
+  background-color: #f8f9fb;
+  border-radius: 8px;
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 16px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 10px 4px;
+  background: #fff;
+  border-radius: 6px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+  line-height: 1.3;
+}
+
+.stat-value.success {
+  color: #67c23a;
+}
+
+.stat-value.danger {
+  color: #f56c6c;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.stat-rate {
+  font-size: 13px;
+  color: #666;
+  text-align: center;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
+.stat-rate strong {
+  color: #409eff;
+  font-size: 18px;
+}
+
+.summary-panel {
+  flex: 1;
+  min-width: 0;
+}
+</style>

@@ -1,66 +1,60 @@
 <template>
-  <div class="flex-1 p-6 bg-gray-50 overflow-auto">
+  <div class="protocol-test-page">
+    <!-- 第1块：设备连接/断开 -->
     <DeviceInfoBar
       :gun-number="deviceStore.deviceInfo.gunNumber"
+      :is-online="deviceStore.deviceInfo.isOnline"
       :protocol-name="deviceStore.deviceInfo.protocolName"
       :protocol-version="deviceStore.deviceInfo.protocolVersion"
-      :is-online="deviceStore.deviceInfo.isOnline"
-      :loading="deviceStore.loading"
+      @connect="handleConnect"
       @disconnect="handleDisconnect"
       @query="handleQuery"
     />
 
+    <!-- 第2块：测试配置 -->
     <TestConfig
-      :gun-number="deviceStore.deviceInfo.gunNumber"
       :is-online="deviceStore.deviceInfo.isOnline"
-      :test-loading="testStore.loading"
-      :current-status="testStore.currentStatus"
-      @start-test="handleStartTest"
-      @start-config="handleStartConfig"
+      @start="handleStartTest"
     />
 
+    <!-- 第3块：测试结果 -->
     <TestResults
       :results="testStore.testResults"
-      :total="testStore.total"
-      :current-page="testStore.currentPage"
-      :page-size="testStore.pageSize"
-      :loading="testStore.loading"
-      @page-change="testStore.fetchResults"
       @view-detail="handleViewDetail"
-      @export-report="handleExportReport"
+      @export="handleExportReport"
     />
 
+    <!-- Detail Modal -->
     <TestDetailModal
-      v-model:visible="detailVisible"
-      :session-id="selectedSessionId"
+      v-model="showDetailModal"
+      :test-id="selectedTestId"
+      @view-messages="handleViewMessages"
     />
+
+    <!-- Message View Modal -->
+    <MessageViewModal v-model="showMessageModal" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
+import { useDeviceStore } from '@/stores/device'
+import { useTestStore } from '@/stores/test'
 import DeviceInfoBar from '@/components/DeviceInfoBar.vue'
 import TestConfig from '@/components/TestConfig.vue'
 import TestResults from '@/components/TestResults.vue'
 import TestDetailModal from '@/components/TestDetailModal.vue'
-import { useDeviceStore } from '@/stores/device'
-import { useTestStore } from '@/stores/test'
-import { exportReport } from '@/api/test'
-import { ElMessage } from 'element-plus'
-import type { ConfigItem } from '@/types/test'
+import MessageViewModal from '@/components/MessageViewModal.vue'
 
 const deviceStore = useDeviceStore()
 const testStore = useTestStore()
 
-const detailVisible = ref(false)
-const selectedSessionId = ref('')
+const showDetailModal = ref(false)
+const showMessageModal = ref(false)
+const selectedTestId = ref<number | null>(null)
 
-onMounted(() => {
-  testStore.fetchResults(1)
-})
-
-function handleQuery(gunNumber: string) {
-  deviceStore.fetchStatus(gunNumber)
+function handleConnect(gunNumber: string) {
+  deviceStore.connect(gunNumber)
 }
 
 function handleDisconnect() {
@@ -69,28 +63,36 @@ function handleDisconnect() {
   }
 }
 
-function handleStartTest(testCase: string, gunNumber: string) {
-  testStore.startTest(testCase, gunNumber)
+function handleQuery(gunNumber: string) {
+  deviceStore.query(gunNumber)
 }
 
-function handleStartConfig(gunNumber: string, items: ConfigItem[]) {
-  testStore.startConfigTest(gunNumber, items)
+function handleStartTest(data: Record<string, unknown>) {
+  testStore.startTestWithConfig(data)
 }
 
-function handleViewDetail(sessionId: string) {
-  selectedSessionId.value = sessionId
-  detailVisible.value = true
+function handleViewDetail(id: number) {
+  selectedTestId.value = id
+  showDetailModal.value = true
 }
 
-async function handleExportReport(sessionId: string) {
-  try {
-    const data = await exportReport(sessionId)
-    if (data.pdfUrl) {
-      window.open(data.pdfUrl, '_blank')
-    }
-    ElMessage.success('报告生成成功')
-  } catch {
-    ElMessage.error('报告生成失败')
-  }
+function handleViewMessages(id: number) {
+  showDetailModal.value = false
+  showMessageModal.value = true
+}
+
+function handleExportReport() {
+  testStore.exportReport()
 }
 </script>
+
+<style scoped>
+.protocol-test-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  height: 100%;
+  overflow-y: auto;
+}
+</style>

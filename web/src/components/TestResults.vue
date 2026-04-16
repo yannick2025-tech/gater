@@ -1,92 +1,138 @@
 <template>
-  <div class="bg-white p-6 rounded-lg shadow">
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="text-base font-semibold">测试结果</h3>
-      <el-button size="small" @click="$emit('page-change', 1)">
-        <RefreshCw class="w-4 h-4 mr-1" /> 刷新
-      </el-button>
+  <div class="test-results-card">
+    <!-- Header -->
+    <div class="card-header">
+      <h3 class="card-title">测试结果</h3>
     </div>
 
-    <el-table :data="results" stripe v-loading="loading" empty-text="暂无测试结果">
-      <el-table-column prop="sessionId" label="Session ID" width="160" />
-      <el-table-column prop="postNo" label="枪编号" width="120" />
-      <el-table-column prop="protocolName" label="协议" width="120" />
-      <el-table-column label="开始时间" width="170">
-        <template #default="{ row }">{{ formatTime(row.startTime) }}</template>
-      </el-table-column>
-      <el-table-column label="持续时间" width="100">
-        <template #default="{ row }">{{ formatDuration(row.durationMs) }}</template>
-      </el-table-column>
-      <el-table-column label="消息数" width="90" align="right">
-        <template #default="{ row }">{{ row.totalMessages }}</template>
-      </el-table-column>
-      <el-table-column label="成功率" width="90" align="right">
+    <!-- Table -->
+    <el-table
+      :data="results"
+      stripe
+      style="width: 100%"
+      :header-cell-style="{ background: '#fafafa', color: '#666', fontWeight: '500' }"
+      empty-text="暂无测试结果"
+    >
+      <el-table-column prop="protocolName" label="测试用例名称" min-width="160" />
+      <el-table-column label="测试结果" width="100" align="center">
         <template #default="{ row }">
-          <span :style="{ color: row.successRate >= 100 ? '#52C41A' : '#EA933F' }">
-            {{ row.successRate.toFixed(1) }}%
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column label="结果" width="90" align="center">
-        <template #default="{ row }">
-          <el-tag :type="row.isPass ? 'success' : 'danger'" size="small">
+          <el-tag
+            :type="row.isPass ? 'success' : 'danger'"
+            effect="light"
+            round
+          >
             {{ row.isPass ? '通过' : '失败' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column prop="startTime" label="测试时间" min-width="170" />
+      <el-table-column label="操作" width="120" align="right">
         <template #default="{ row }">
-          <el-button type="primary" text size="small" @click="$emit('view-detail', row.sessionId)">
-            详情
-          </el-button>
-          <el-button type="primary" text size="small" @click="$emit('export-report', row.sessionId)">
-            导出PDF
+          <el-button type="primary" link @click="$emit('view-detail', row.id)">
+            查看详情
           </el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <div class="flex justify-end mt-4">
-      <el-pagination
-        v-model:current-page="currentPage_"
-        :page-size="pageSize"
-        :total="total"
-        layout="total, prev, pager, next"
-        @current-change="(page: number) => $emit('page-change', page)"
-      />
+    <!-- Footer -->
+    <div class="card-footer">
+      <div class="footer-left">
+        <el-pagination
+          v-model:current-page="currentPage"
+          :page-size="pageSize"
+          :total="total"
+          layout="prev, next"
+          small
+          @current-change="handlePageChange"
+        />
+      </div>
+      <div class="footer-right">
+        <el-button plain size="small" @click="$emit('export')">
+          <el-icon><Document /></el-icon>
+          导出测试报告
+        </el-button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
-import dayjs from 'dayjs'
-import type { TestResult } from '@/types/test'
+import { ref } from 'vue'
+import { Document } from '@element-plus/icons-vue'
 
-const props = defineProps<{
-  results: TestResult[]
-  total: number
-  currentPage: number
-  pageSize: number
-  loading: boolean
+defineProps<{
+  results: Array<Record<string, any>>
 }>()
 
-defineEmits<{
-  'page-change': [page: number]
-  'view-detail': [sessionId: string]
-  'export-report': [sessionId: string]
+const emit = defineEmits<{
+  'view-detail': [id: number]
+  export: []
 }>()
 
-const currentPage_ = computed(() => props.currentPage)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(2)
 
-function formatTime(t: string) {
-  return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-'
-}
-
-function formatDuration(ms: number) {
-  if (!ms) return '-'
-  if (ms < 60000) return `${(ms / 1000).toFixed(0)}s`
-  return `${(ms / 60000).toFixed(1)}min`
+function handlePageChange(page: number) {
+  // TODO: load page data
 }
 </script>
+
+<style scoped>
+.test-results-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 24px;
+}
+
+.card-header {
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+/* Table overrides */
+.test-results-card :deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+}
+
+.test-results-card :deep(.el-table th.el-table__cell) {
+  border-bottom: none;
+  font-size: 13px;
+}
+
+.test-results-card :deep(.el-table td.el-table__cell) {
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 13px;
+}
+
+.test-results-card :deep(.el-table--striped .el-table__body tr.el-table__row--striped td) {
+  background-color: #fafbfc;
+}
+
+/* Footer */
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding-top: 16px;
+}
+
+.footer-left {
+  display: flex;
+  gap: 12px;
+}
+
+.footer-right {
+  display: flex;
+  gap: 8px;
+}
+</style>

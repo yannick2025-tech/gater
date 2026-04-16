@@ -1,264 +1,333 @@
 <template>
-  <div class="bg-white p-6 rounded-lg shadow mb-6">
-    <h3 class="text-base font-semibold mb-4">测试配置</h3>
+  <div class="test-config-card">
+    <!-- Header -->
+    <div class="card-header">
+      <h3 class="card-title">测试配置</h3>
+    </div>
 
-    <div class="space-y-4">
-      <div>
-        <label class="block mb-2 text-sm">
-          请选择测试用例 <span class="text-red-500">*</span>
-        </label>
+    <!-- Form -->
+    <el-form
+      ref="formRef"
+      :model="formData"
+      label-width="0px"
+      class="config-form"
+    >
+      <!-- 用例选择 -->
+      <div class="form-section">
+        <label class="required-label">请选择测试用例 *</label>
         <el-select
-          v-model="testCase"
+          v-model="formData.scenario"
           placeholder="请选择"
-          :disabled="testLoading"
-          class="w-full"
+          class="full-select"
+          size="default"
         >
           <el-option label="基础充电测试" value="basic_charging" />
           <el-option label="SFTP升级测试" value="sftp_upgrade" />
-          <el-option label="平台下发配置测试" value="config_download" />
+          <el-option label="配置下发测试" value="config_download" />
         </el-select>
       </div>
 
-      <!-- 基础充电测试 -->
-      <template v-if="testCase === 'basic_charging'">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block mb-2 text-sm">账户余额 <span class="text-red-500">*</span></label>
-            <el-input v-model="basicForm.balance" type="number" placeholder="0.00" :disabled="testLoading">
-              <template #suffix>元</template>
-            </el-input>
+      <!-- 基础充电参数 (仅 basic_charging 显示) -->
+      <template v-if="showChargingParams">
+        <div class="form-section">
+          <div class="form-row three-col">
+            <el-form-item label="输出电压(V)" class="form-item-nested">
+              <el-input-number v-model="formData.voltage" :min="0" :max="1000" controls-position="right" class="full-width" />
+            </el-form-item>
+            <el-form-item label="电流限流(A)" class="form-item-nested">
+              <el-input-number v-model="formData.amperage" :min="0" :max="200" controls-position="right" class="full-width" />
+            </el-form-item>
+            <el-form-item label="充电模式" class="form-item-nested">
+              <el-select v-model="formData.chargeMode" class="full-width">
+                <el-option label="直流" value="DC" />
+                <el-option label="交流" value="AC" />
+              </el-select>
+            </el-form-item>
           </div>
-          <div>
-            <label class="block mb-2 text-sm">停止码 <span class="text-red-500">*</span></label>
+
+          <div class="form-row two-col">
+            <el-form-item label="充电电量(kWh)" class="form-item-nested">
+              <el-input-number v-model="formData.energy" :min="0" :max="500" :precision="2" controls-position="right" class="full-width" />
+            </el-form-item>
+            <el-form-item label="SOC目标(%)" class="form-item-nested">
+              <el-input-number v-model="formData.targetSoc" :min="0" :max="100" controls-position="right" class="full-width" />
+            </el-form-item>
+          </div>
+        </div>
+
+        <!-- 充电限制配额 -->
+        <div class="quota-box">
+          <div class="quota-title">充电限制配额</div>
+          <div class="quota-body">
+            <PriceTable v-model:prices="formData.prices" />
+          </div>
+        </div>
+      </template>
+
+      <!-- SFTP升级参数 -->
+      <template v-if="formData.scenario === 'sftp_upgrade'">
+        <div class="form-section">
+          <div class="form-row two-col">
+            <el-form-item label="SFTP服务器地址" class="form-item-nested">
+              <el-input v-model="formData.sftpHost" placeholder="例: 192.168.1.100" />
+            </el-form-item>
+            <el-form-item label="端口" class="form-item-nested">
+              <el-input-number v-model="formData.sftpPort" :min="1" :max="65535" controls-position="right" class="full-width" />
+            </el-form-item>
+          </div>
+          <div class="form-row two-col">
+            <el-form-item label="用户名" class="form-item-nested">
+              <el-input v-model="formData.sftpUser" placeholder="SFTP用户名" />
+            </el-form-item>
+            <el-form-item label="密码" class="form-item-nested">
+              <el-input v-model="formData.sftpPass" type="password" placeholder="SFTP密码" show-password />
+            </el-form-item>
+          </div>
+          <el-form-item label="固件文件路径" class="form-item-nested full-row">
+            <el-input v-model="formData.firmwarePath" placeholder="/firmware/gater_v1.6.0.bin" />
+          </el-form-item>
+          <el-form-item label="校验值(MD5)" class="form-item-nested full-row">
+            <el-input v-model="formData.md5Checksum" placeholder="32位MD5哈希值" />
+          </el-form-item>
+        </div>
+      </template>
+
+      <!-- 配置下发参数 -->
+      <template v-if="formData.scenario === 'config_download'">
+        <div class="form-section">
+          <el-form-item label="配置项(funcCode)" class="form-item-nested full-row">
+            <el-select v-model="formData.configFuncCode" placeholder="选择功能码" class="full-width" filterable allow-create>
+              <el-option label="0x01 - 工作参数设置" value="0x01" />
+              <el-option label="0x02 - 网络配置" value="0x02" />
+              <el-option label="0x03 - 认证信息" value="0x03" />
+              <el-option label="0x04 - 固件信息" value="0x04" />
+              <el-option label="0xFF - 其他(自定义)" value="0xFF" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="Payload内容(JSON)" class="form-item-nested full-row">
             <el-input
-              v-model="basicForm.stopCode"
-              placeholder="1234"
-              maxlength="4"
-              :disabled="testLoading"
-              @input="basicForm.stopCode = basicForm.stopCode.replace(/\D/g, '').slice(0, 4)"
+              v-model="formData.configPayload"
+              type="textarea"
+              :rows="4"
+              placeholder='{"key": "value"}'
+              class="json-textarea"
             />
-          </div>
-        </div>
-
-        <div>
-          <label class="block mb-2 text-sm">充电限制配额（互斥，填写任一项）</label>
-          <div class="grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded border border-gray-200">
-            <div>
-              <label class="block mb-1 text-xs text-gray-500">最大充电量</label>
-              <el-input
-                v-model="basicForm.maxCharge"
-                type="number"
-                placeholder="0"
-                :disabled="testLoading || hasOtherConstraint('maxCharge')"
-                @input="clearOtherConstraints('maxCharge')"
-              >
-                <template #suffix>kWh</template>
-              </el-input>
-            </div>
-            <div>
-              <label class="block mb-1 text-xs text-gray-500">时长</label>
-              <el-input
-                v-model="basicForm.duration"
-                type="number"
-                placeholder="0"
-                :disabled="testLoading || hasOtherConstraint('duration')"
-                @input="clearOtherConstraints('duration')"
-              >
-                <template #suffix>分钟</template>
-              </el-input>
-            </div>
-            <div>
-              <label class="block mb-1 text-xs text-gray-500">金额</label>
-              <el-input
-                v-model="basicForm.amount"
-                type="number"
-                placeholder="0"
-                :disabled="testLoading || hasOtherConstraint('amount')"
-                @input="clearOtherConstraints('amount')"
-              >
-                <template #suffix>元</template>
-              </el-input>
-            </div>
-            <div>
-              <label class="block mb-1 text-xs text-gray-500">SOC</label>
-              <el-input
-                v-model="basicForm.soc"
-                type="number"
-                placeholder="0"
-                :disabled="testLoading || hasOtherConstraint('soc')"
-                @input="clearOtherConstraints('soc')"
-              >
-                <template #suffix>%</template>
-              </el-input>
-            </div>
-          </div>
-        </div>
-
-        <PriceTable v-model="basicForm.priceRows" :is-loading="testLoading" />
-      </template>
-
-      <!-- SFTP升级测试 -->
-      <template v-if="testCase === 'sftp_upgrade'">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block mb-2 text-sm">固件版本 <span class="text-red-500">*</span></label>
-            <el-input v-model="sftpForm.firmwareVersion" placeholder="请输入固件版本" :disabled="testLoading" />
-          </div>
-          <div>
-            <label class="block mb-2 text-sm">SFTP地址</label>
-            <el-input v-model="sftpForm.sftpAddr" placeholder="sftp://192.168.1.100/firmware.bin" :disabled="testLoading" />
-          </div>
+          </el-form-item>
+          <div v-if="payloadError" class="error-hint">{{ payloadError }}</div>
         </div>
       </template>
 
-      <!-- 平台下发配置测试 -->
-      <template v-if="testCase === 'config_download'">
-        <div>
-          <label class="block mb-2 text-sm">
-            配置项 JSON <span class="text-red-500">*</span>
-            <span class="text-gray-400 text-xs ml-2">支持功能码: 0xC2(配置下发)、0x22(计费规则)、0x0C(设备参数查询)</span>
-          </label>
-          <el-input
-            v-model="configForm.jsonInput"
-            type="textarea"
-            :rows="8"
-            placeholder='[
-  {"funcCode": 194, "payload": {"paramList": [{"seq": 1, "valueBytes": [1, 2]}]}},
-  {"funcCode": 34, "payload": {"feeNum": 1, "listFee": [{"hour": 8, "min": 0, "powerFee": 10000, "svcFee": 800, "type": 2, "limitedP": 0}]}}
-]'
-            :disabled="testLoading"
-          />
-          <div v-if="configForm.error" class="mt-1 text-xs text-red-500">{{ configForm.error }}</div>
-        </div>
-      </template>
-
-      <!-- 测试进度 -->
-      <div v-if="currentStatus && currentStatus.status === 'running'" class="p-4 bg-blue-50 rounded border border-blue-200">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-sm font-medium">测试进行中...</span>
-          <span class="text-sm text-blue-600">{{ currentStatus.stepName }}</span>
-        </div>
-        <el-progress :percentage="currentStatus.progress" :stroke-width="8" />
-      </div>
-
-      <!-- 开始测试按钮 -->
-      <div v-if="testCase" class="flex justify-end pt-2">
-        <el-button
-          type="primary"
-          :loading="testLoading"
-          :disabled="!isOnline || !testCase"
-          style="background-color: #148493; border-color: #148493"
-          @click="handleStart"
-        >
-          {{ testLoading ? '测试中' : '开始测试' }}
+      <!-- Footer: 开始测试按钮 (未连接时禁用+提示) -->
+      <div class="card-footer">
+        <span v-if="!isOnline" class="offline-hint">请先连接设备</span>
+        <el-button type="primary" size="large" class="start-btn" :disabled="!isOnline" @click="handleStart">
+          开始测试
         </el-button>
       </div>
-      <div v-if="!isOnline && testCase" class="text-xs text-gray-400 text-right">设备未连接，无法开始测试</div>
-    </div>
+    </el-form>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import PriceTable from './PriceTable.vue'
-import type { TestStatus, ConfigItem, PriceRow } from '@/types/test'
-import { ElMessage } from 'element-plus'
+import { ref, computed, watch } from 'vue'
+import { ElMessage, type FormInstance } from 'element-plus'
+import PriceTable, { type PriceRow } from './PriceTable.vue'
 
 const props = defineProps<{
-  gunNumber: string
-  isOnline: boolean
-  testLoading: boolean
-  currentStatus: TestStatus | null
+  isOnline?: boolean
 }>()
 
 const emit = defineEmits<{
-  startTest: [testCase: string, gunNumber: string]
-  startConfig: [gunNumber: string, items: ConfigItem[]]
+  start: [data: Record<string, unknown>]
 }>()
 
-const testCase = ref<'' | 'basic_charging' | 'sftp_upgrade' | 'config_download'>('')
+const formRef = ref<FormInstance>()
 
-const basicForm = reactive({
-  balance: '',
-  stopCode: '1234',
-  maxCharge: '',
-  duration: '',
-  amount: '',
-  soc: '',
-  priceRows: [
-    { id: '1', periodType: '' as const, startTime: '00:00', endTime: '23:59', electricityFee: '', serviceFee: '' },
-  ] as PriceRow[],
+const formData = ref({
+  scenario: '',
+  voltage: 200,
+  amperage: 32,
+  chargeMode: 'DC',
+  energy: 50,
+  targetSoc: 95,
+  prices: [] as PriceRow[],
+  sftpHost: '',
+  sftpPort: 22,
+  sftpUser: '',
+  sftpPass: '',
+  firmwarePath: '',
+  md5Checksum: '',
+  configFuncCode: '',
+  configPayload: '',
 })
 
-const sftpForm = reactive({
-  firmwareVersion: '',
-  sftpAddr: '',
-})
+const showChargingParams = computed(() => formData.value.scenario === 'basic_charging')
 
-const configForm = reactive({
-  jsonInput: '',
-  error: '',
-})
-
-const constraintFields = ['maxCharge', 'duration', 'amount', 'soc'] as const
-
-function hasOtherConstraint(field: string) {
-  return constraintFields.filter((f) => f !== field).some((f) => !!(basicForm as any)[f])
-}
-
-function clearOtherConstraints(field: string) {
-  if ((basicForm as any)[field]) {
-    constraintFields.forEach((f) => {
-      if (f !== field) (basicForm as any)[f] = ''
-    })
+// 切换到基础充电时初始化默认时段行
+watch(() => formData.value.scenario, (val) => {
+  if (val === 'basic_charging' && formData.value.prices.length === 0) {
+    formData.value.prices = [
+      { startTime: '00:00', endTime: '23:59', electricityFee: 0, serviceFee: 0 },
+    ]
   }
-}
+})
+
+const payloadError = computed(() => {
+  if (formData.value.scenario !== 'config_download') return ''
+  const payload = formData.value.configPayload?.trim()
+  if (!payload) return ''
+  try {
+    JSON.parse(payload)
+    return ''
+  } catch {
+    return 'JSON格式错误，请检查语法'
+  }
+})
 
 function handleStart() {
-  if (!props.gunNumber) {
-    ElMessage.warning('请先查询设备')
-    return
-  }
   if (!props.isOnline) {
-    ElMessage.warning('设备未连接')
+    ElMessage.warning('请先连接设备')
     return
   }
-
-  if (testCase.value === 'config_download') {
-    const items = parseConfigJson()
-    if (items) {
-      emit('startConfig', props.gunNumber, items)
-    }
+  if (!formData.value.scenario) {
+    ElMessage.warning('请先选择测试用例')
     return
   }
-
-  emit('startTest', testCase.value, props.gunNumber)
-}
-
-function parseConfigJson(): ConfigItem[] | null {
-  configForm.error = ''
-  const input = configForm.jsonInput.trim()
-  if (!input) {
-    configForm.error = '请输入配置项 JSON'
-    return null
+  if (payloadError.value) {
+    ElMessage.error('请修正JSON格式')
+    return
   }
-  try {
-    const parsed = JSON.parse(input)
-    const arr = Array.isArray(parsed) ? parsed : [parsed]
-    for (let i = 0; i < arr.length; i++) {
-      if (!arr[i].funcCode || !arr[i].payload) {
-        configForm.error = `item[${i}]: 缺少 funcCode 或 payload`
-        return null
-      }
-      if (![194, 34, 12].includes(arr[i].funcCode)) {
-        configForm.error = `item[${i}]: 不支持的功能码 0x${arr[i].funcCode.toString(16)} (支持: 0xC2, 0x22, 0x0C)`
-        return null
-      }
-    }
-    return arr as ConfigItem[]
-  } catch (e: any) {
-    configForm.error = 'JSON 格式错误: ' + e.message
-    return null
-  }
+  emit('start', { ...formData.value })
 }
 </script>
+
+<style scoped>
+.test-config-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 24px;
+}
+
+.card-header {
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.required-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.required-label::before {
+  content: '*';
+  color: #f56c6c;
+  margin-right: 4px;
+}
+
+.full-select {
+  width: 100%;
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-row.three-col .form-item-nested {
+  flex: 1;
+}
+
+.form-row.two-col .form-item-nested {
+  flex: 1;
+}
+
+.full-row {
+  width: 100%;
+}
+
+.form-item-nested {
+  margin-bottom: 0 !important;
+  width: 100%;
+}
+
+.form-item-nested :deep(.el-form-item__content) {
+  justify-content: flex-start;
+}
+
+.full-width {
+  width: 100% !important;
+}
+
+/* 充电限制配额 */
+.quota-box {
+  background-color: #F7F8FA;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.quota-title {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+  border-bottom: 1px solid #eee;
+}
+
+.quota-body {
+  padding: 16px;
+}
+
+.json-textarea :deep(textarea) {
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.error-hint {
+  color: #f56c6c;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Footer */
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px dashed #eee;
+  margin-top: 4px;
+}
+
+.offline-hint {
+  font-size: 13px;
+  color: #e6a23c;
+}
+
+.start-btn {
+  min-width: 120px;
+  border-radius: 6px;
+  font-size: 14px;
+  padding: 10px 28px;
+}
+</style>

@@ -56,7 +56,7 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 		return
 	}
 
-	postNo, err := strconv.ParseUint(gunNumber, 10, 32)
+	postNo, err := strconv.ParseUint(gunNumber, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
 		return
@@ -68,11 +68,11 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"gunNumber":      gunNumber,
-			"protocolName":   "XX标准协议",
+			"gunNumber":       gunNumber,
+			"protocolName":    "XX标准协议",
 			"protocolVersion": "v1.6.0",
-			"isOnline":       isOnline,
-			"sessionId":      func() string {
+			"isOnline":        isOnline,
+			"sessionId": func() string {
 				if ok {
 					return sess.ID
 				}
@@ -102,7 +102,7 @@ func (r *Router) toggleConnection(c *gin.Context) {
 		return
 	}
 
-	postNo, err := strconv.ParseUint(req.GunNumber, 10, 32)
+	postNo, err := strconv.ParseUint(req.GunNumber, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
 		return
@@ -150,7 +150,7 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 		return
 	}
 
-	postNo, err := strconv.ParseUint(req.GunNumber, 10, 32)
+	postNo, err := strconv.ParseUint(req.GunNumber, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
 		return
@@ -188,7 +188,7 @@ func (r *Router) startTest(c *gin.Context) {
 	}
 
 	// 查找对应会话
-	postNo, _ := strconv.ParseUint(req.GunNumber, 10, 32)
+	postNo, _ := strconv.ParseUint(req.GunNumber, 10, 64)
 	sess, ok := r.sessMgr.GetByPostNo(uint32(postNo))
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device not connected"})
@@ -306,10 +306,10 @@ func (r *Router) getTestDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"sessionId":  sessionID,
-			"startTime":  testReport.StartTime,
-			"endTime":    testReport.EndTime,
-			"status":     func() string {
+			"sessionId": sessionID,
+			"startTime": testReport.StartTime,
+			"endTime":   testReport.EndTime,
+			"status": func() string {
 				if testReport.IsPass {
 					return "pass"
 				}
@@ -424,7 +424,7 @@ func (r *Router) configDownload(c *gin.Context) {
 		return
 	}
 
-	postNo, err := strconv.ParseUint(req.GunNumber, 10, 32)
+	postNo, err := strconv.ParseUint(req.GunNumber, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
 		return

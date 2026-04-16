@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { TestResult, TestStatus } from '@/types/test'
 import { getTestResults, getTestStatus, startTest as startTestApi, configDownload } from '@/api/test'
 import type { ConfigItem } from '@/types/test'
+import { ElMessage } from 'element-plus'
 
 export const useTestStore = defineStore('test', () => {
   const testResults = ref<TestResult[]>([])
@@ -35,6 +36,16 @@ export const useTestStore = defineStore('test', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  function startTestWithConfig(data: Record<string, unknown>) {
+    // Simplified: extract scenario and call appropriate API
+    const scenario = (data.scenario as string) || 'basic_charging'
+    return startTest(scenario, '', data)
+  }
+
+  function exportReport() {
+    ElMessage.info('导出功能开发中...')
   }
 
   async function startConfigTest(gunNumber: string, items: ConfigItem[]) {
@@ -74,6 +85,7 @@ export const useTestStore = defineStore('test', () => {
 
   return {
     testResults, total, currentPage, pageSize, loading, currentStatus,
-    fetchResults, startTest, startConfigTest, startPolling, stopPolling,
+    fetchResults, startTest, startTestWithConfig, startConfigTest, exportReport,
+    startPolling, stopPolling,
   }
 })
