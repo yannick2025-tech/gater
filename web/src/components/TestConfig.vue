@@ -33,10 +33,10 @@
         <div class="form-section">
           <div class="form-row three-col">
             <el-form-item label="输出电压(V)" class="form-item-nested">
-              <el-input-number v-model="formData.voltage" :min="0" :max="1000" controls-position="right" class="full-width" />
+              <el-input-number v-model="formData.voltage" :min="0" :max="1000" controls-position="right" class="full-width" size="default" />
             </el-form-item>
             <el-form-item label="电流限流(A)" class="form-item-nested">
-              <el-input-number v-model="formData.amperage" :min="0" :max="200" controls-position="right" class="full-width" />
+              <el-input-number v-model="formData.amperage" :min="0" :max="200" controls-position="right" class="full-width" size="default" />
             </el-form-item>
             <el-form-item label="充电模式" class="form-item-nested">
               <el-select v-model="formData.chargeMode" class="full-width">
@@ -48,10 +48,28 @@
 
           <div class="form-row two-col">
             <el-form-item label="充电电量(kWh)" class="form-item-nested">
-              <el-input-number v-model="formData.energy" :min="0" :max="500" :precision="2" controls-position="right" class="full-width" />
+              <el-input-number v-model="formData.energy" :min="0" :max="500" :precision="2" controls-position="right" class="full-width" size="default" />
             </el-form-item>
             <el-form-item label="SOC目标(%)" class="form-item-nested">
-              <el-input-number v-model="formData.targetSoc" :min="0" :max="100" controls-position="right" class="full-width" />
+              <el-input-number v-model="formData.targetSoc" :min="0" :max="100" controls-position="right" class="full-width" size="default" />
+            </el-form-item>
+          </div>
+
+          <!-- 新增参数：VIN码 / 账户余额 / 屏显模式 -->
+          <div class="form-row three-col">
+            <el-form-item label="VIN码" class="form-item-nested">
+              <el-input v-model="formData.vinCode" placeholder="17位车辆识别码(可选)" maxlength="17" />
+            </el-form-item>
+            <el-form-item label="账户余额(元)" class="form-item-nested">
+              <el-input-number v-model="formData.balance" :min="0" :precision="2" controls-position="right" class="full-width" size="default">
+                <template #append>元</template>
+              </el-input-number>
+            </el-form-item>
+            <el-form-item label="屏显模式" class="form-item-nested">
+              <el-select v-model="formData.displayMode" placeholder="请选择" class="full-width" clearable>
+                <el-option label="模式0" value="0" />
+                <el-option label="模式1" value="1" />
+              </el-select>
             </el-form-item>
           </div>
         </div>
@@ -151,6 +169,9 @@ const formData = ref({
   chargeMode: 'DC',
   energy: 50,
   targetSoc: 95,
+  vinCode: '' as string,        // VIN码（可选，17位）
+  balance: 500.00 as number,    // 账户余额（必填，单位元）
+  displayMode: '' as string,   // 屏显模式（可选，0或1）
   prices: [] as PriceRow[],
   sftpHost: '',
   sftpPort: 22,
@@ -198,6 +219,23 @@ function handleStart() {
     ElMessage.error('请修正JSON格式')
     return
   }
+
+  // 基础充电参数校验
+  if (formData.value.scenario === 'basic_charging') {
+    // VIN码：可选，但填了必须是17位
+    const vin = formData.value.vinCode?.trim()
+    if (vin && vin.length !== 17) {
+      ElMessage.error('VIN码必须为17位')
+      return
+    }
+
+    // 账户余额：必填
+    if (formData.value.balance === null || formData.value.balance === undefined || formData.value.balance < 0) {
+      ElMessage.error('请输入账户余额')
+      return
+    }
+  }
+
   emit('start', { ...formData.value })
 }
 </script>

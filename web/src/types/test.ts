@@ -75,3 +75,15 @@ export interface TestStatus {
   stepName: string
   testCase: string
 }
+
+export interface MessageArchive {
+  id: number
+  sessionId: string
+  funcCode: string      // "0x0A"
+  direction: string     // "充电桩→平台" / "平台→充电桩"
+  status: string        // success / decode_fail / invalid_field
+  hexData: string       // 原始16进制
+  jsonData: string      // 解码后JSON
+  errorMsg?: string     // 错误信息
+  timestamp: string     // 收发时间
+}

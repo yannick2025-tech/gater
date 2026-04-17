@@ -3,10 +3,12 @@ package session
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/crypto"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
 	"github.com/yannick2025-tech/nts-gater/internal/recorder"
@@ -171,7 +173,7 @@ func (m *SessionManager) Create(postNo uint32, connID string) (*Session, error) 
 	}
 
 	atomic.AddUint64(&m.counter, 1)
-	id := fmt.Sprintf("sess-%d", m.counter)
+	id := strings.ToUpper(strings.ReplaceAll(uuid.New().String(), "", "")[:16]) // 取前16位大写作为短UUID，如 A1B2C3D4E5F6G7H8
 
 	now := time.Now()
 	sess := &Session{
@@ -232,6 +234,17 @@ func (m *SessionManager) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.sessions)
+}
+
+// GetAllSessions 返回所有活跃会话的副本（用于会话列表展示）
+func (m *SessionManager) GetAllSessions() []*Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*Session, 0, len(m.sessions))
+	for _, sess := range m.sessions {
+		result = append(result, sess)
+	}
+	return result
 }
 
 // SetSessionKey 设置会话密钥（0x21密钥更新成功后调用）

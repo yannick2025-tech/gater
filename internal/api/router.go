@@ -10,7 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/yannick2025-tech/nts-gater/internal/model"
 	"github.com/yannick2025-tech/nts-gater/internal/report"
+	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 	"github.com/yannick2025-tech/nts-gater/internal/scenario"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
 )
@@ -131,6 +133,9 @@ func NewRouter(sessMgr *session.SessionManager, scenarioEngine *scenario.Engine)
 func (r *Router) Setup(engine *gin.Engine) {
 	api := engine.Group("/api")
 	{
+		// 会话管理
+		api.GET("/sessions", r.getSessions)
+
 		// 设备管理
 		api.GET("/device/status", r.getDeviceStatus)
 		api.POST("/device/connect", r.toggleConnection)
@@ -141,6 +146,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 		api.GET("/test/status/:sessionId", r.getTestStatus)
 		api.GET("/test/results", r.getTestResults)
 		api.GET("/test/detail/:sessionId", r.getTestDetail)
+		api.GET("/test/messages/:sessionId", r.getMessages)
 		api.POST("/test/decode", r.decodeMessage)
 		api.POST("/test/export", r.exportReport)
 		api.GET("/test/download", r.downloadPDF)
@@ -195,6 +201,36 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": respData})
+}
+
+// getSessions 获取所有活跃的TCP会话列表
+// GET /api/sessions
+func (r *Router) getSessions(c *gin.Context) {
+	sessions := r.sessMgr.GetAllSessions()
+
+	list := make([]gin.H, 0, len(sessions))
+	for _, sess := range sessions {
+		authState := sess.GetAuthState().String()
+		list = append(list, gin.H{
+			"sessionId":   sess.ID,
+			"postNo":      sess.PostNo,
+			"gunNumber":   fmt.Sprintf("%d", sess.PostNo),
+			"authState":   authState,
+			"isOnline":    authState == "authenticated",
+			"protocolName": "XX标准协议",
+			"protocolVersion": "v1.6.0",
+			"connectedAt": sess.CreatedAt.Format("2006-01-02 15:04:05"),
+			"lastActive":  sess.LastActive.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"total": len(list),
+			"list":  list,
+		},
+	})
 }
 
 // toggleConnection 连接/断开设备
@@ -260,40 +296,62 @@ func (r *Router) disconnectDevice(c *gin.Context) {
 	r.handleDisconnect(c, uint32(postNo))
 }
 
-// handleDisconnect 统一断开逻辑：清理Web注册表 + 清理TCP会话 + 生成报告
+// handleDisconnect 统一断开逻辑：立即返回 + 异步清理
 func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 	// 1. 从Web注册表移除
 	r.connRegistry.Unregister(postNo)
 
-	// 2. 如果有TCP会话，关闭记录器、生成报告、移除会话
-	if sess, ok := r.sessMgr.GetByPostNo(postNo); ok {
-		// 关闭记录器（写日志尾）
-		if sess.Recorder != nil {
-			sess.Recorder.Close()
-			// 生成测试结果记录到数据库
-			summary := sess.Recorder.Summary()
-			if summary.TotalMessages > 0 || !sess.CreatedAt.IsZero() { // 有消息或已连接过就保存
-				err := report.SaveReport(summary, "XX标准协议", "v1.6.0")
-				if err != nil {
-					_ = fmt.Errorf("save report on disconnect: %w", err)
+	// 2. 立即返回成功（不等待后续清理操作）
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
+
+	// 3. 异步执行耗时清理操作（按顺序：停场景 → 关记录器 → 存报告 → 移会话）
+	go func() {
+		if sess, ok := r.sessMgr.GetByPostNo(postNo); ok {
+			// 3.1 先停止场景引擎（防止继续发送报文/轮询running）
+			r.scenarioEngine.RemoveScenario(sess.ID)
+
+			// 3.2 关闭记录器（停止接收新消息，锁定统计）
+			if sess.Recorder != nil {
+				sess.Recorder.Close()
+			}
+
+			// 3.3 构建会话摘要并保存报告到数据库
+			var summary *recorder.SessionSummary
+			if sess.Recorder != nil {
+				summary = sess.Recorder.Summary()
+			} else {
+				now := time.Now()
+				summary = &recorder.SessionSummary{
+					SessionID:     sess.ID,
+					PostNo:        sess.PostNo,
+					StartTime:     sess.CreatedAt,
+					EndTime:       now,
+					Duration:      now.Sub(sess.CreatedAt),
 				}
 			}
-		}
-		r.sessMgr.Remove(sess.ID)
-	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
+			err := report.SaveReport(summary, "XX标准协议", "v1.6.0")
+			if err != nil {
+				fmt.Printf("[disconnect] save report error for session %s: %v\n", sess.ID, err)
+			} else {
+				fmt.Printf("[disconnect] report saved for session %s (postNo=%d)\n", sess.ID, postNo)
+			}
+
+			// 3.4 最后移除会话（必须在SaveReport之后，因为Remove也会Close Recorder）
+			r.sessMgr.Remove(sess.ID)
+		}
+	}()
 }
 
 // ==================== 测试接口 ====================
 
-// startTest 开始测试
+// startTest 开始测试（基于已存在的TCP会话）
 // POST /api/test/start
-// Body: {"testCase":"basic_charging","gunNumber":"5023001201","params":{...}}
+// Body: {"sessionId":"A1B2C3D4E5F6G7H8","testCase":"basic_charming","params":{...}}
 func (r *Router) startTest(c *gin.Context) {
 	var req struct {
+		SessionID string                 `json:"sessionId"` // 必填：从会话列表选择的真实sessionID
 		TestCase  string                 `json:"testCase"`
-		GunNumber string                 `json:"gunNumber"`
 		Params    map[string]interface{} `json:"params"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -301,27 +359,22 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
-	postNo, err := strconv.ParseUint(req.GunNumber, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid gunNumber"})
+	if req.SessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "sessionId is required"})
 		return
 	}
 
-	pn := uint32(postNo)
-
-	// 统一使用 connRegistry 校验连接状态（Web注册表 + TCP会话）
-	if !r.connRegistry.IsConnected(pn, r.sessMgr) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device not connected"})
+	// 获取真实session
+	sess, ok := r.sessMgr.Get(req.SessionID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "session not found or already ended"})
 		return
 	}
 
-	// 尝试获取或创建会话用于测试
-	sess, hasTCPSession := r.sessMgr.GetByPostNo(pn)
-	if !hasTCPSession {
-		// 无TCP会话时创建一个虚拟会话用于Web端测试场景
-		sess, _ = r.sessMgr.Create(pn, "web-ui-"+req.GunNumber)
-		// 将此会话标记为已认证（因为Web端已经确认连接）
-		sess.SetAuthState(session.Authenticated)
+	// 检查session是否已认证
+	if sess.GetAuthState() != session.Authenticated {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "session not authenticated yet"})
+		return
 	}
 
 	sc, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase)
@@ -348,9 +401,30 @@ func (r *Router) startTest(c *gin.Context) {
 func (r *Router) getTestStatus(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
+	// 1. 先尝试从内存获取session
 	sess, ok := r.sessMgr.Get(sessionID)
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "session not found"})
+		// 2. session已不在内存中（已被断开/超时移除）→ 查数据库
+		testReport, err := report.GetTestReportBySessionID(sessionID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
+			return
+		}
+		// 返回数据库中的最终状态
+		status := "completed"
+		if !testReport.IsPass && testReport.FailTotal > 0 {
+			status = "failed"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code": 200,
+			"data": gin.H{
+				"sessionId": sessionID,
+				"status":    status,
+				"progress":  100,
+				"stepName":  "已完成",
+				"testCase":  "",
+			},
+		})
 		return
 	}
 
@@ -442,9 +516,45 @@ func (r *Router) getTestDetail(c *gin.Context) {
 				}
 				return "fail"
 			}(),
-			"statistics": stats,
-		},
+		"statistics": stats,
+	},
 	})
+}
+
+// getMessages 获取会话的所有报文存档
+// GET /api/test/messages/:sessionId?funcCode=&status=
+func (r *Router) getMessages(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+	funcCode := c.Query("funcCode")
+	status := c.Query("status")
+
+	archives, err := report.GetMessageArchivesBySessionID(sessionID, funcCode, status)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"list": []interface{}{}}})
+		return
+	}
+
+	if archives == nil {
+		archives = []model.MessageArchive{}
+	}
+
+	// Convert to JSON-friendly format
+	list := make([]gin.H, len(archives))
+	for i, a := range archives {
+		list[i] = gin.H{
+			"id":        a.ID,
+			"sessionId": sessionID,
+			"funcCode":  a.FuncCode,
+			"direction": a.Direction,
+			"status":    a.Status,
+			"hexData":   a.HexData,
+			"jsonData":  a.JSONData,
+			"errorMsg":  a.ErrorMsg,
+			"timestamp": a.Timestamp.Format("2006-01-02 15:04:05"),
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"list": list}})
 }
 
 // decodeMessage 解码16进制报文

@@ -1,60 +1,38 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="查看测试结果中的报文"
-    width="800px"
+    title="查看报文"
+    width="820px"
     :close-on-click-modal="false"
     class="msg-dialog"
   >
-    <!-- Filter bar -->
     <div class="filter-bar">
-      <div class="filter-left">
-        <span class="filter-label">筛选：</span>
-        <el-select v-model="filterType" size="small" class="filter-select" placeholder="全部类型">
-          <el-option label="全部类型" value="" />
-          <el-option label="请求报文" value="request" />
-          <el-option label="响应报文" value="response" />
-        </el-select>
-      </div>
-      <div class="filter-right">
-        <span class="msg-count">共 {{ filteredMessages.length }} 条</span>
-      </div>
+      <span class="msg-count">共 {{ displayMessages.length }} 条报文</span>
     </div>
 
     <!-- Message list -->
     <div class="message-list">
-      <div
-        v-for="(msg, idx) in filteredMessages"
-        :key="idx"
-        class="message-item"
-      >
+      <div v-for="(msg, idx) in displayMessages" :key="idx" class="message-item">
         <div class="msg-header">
-          <span class="msg-index">#{{ idx + 1 }}</span>
-          <el-tag
-            :type="msg.direction === 'request' ? '' : 'success'"
-            size="small"
-            effect="light"
-          >
-            {{ msg.direction === 'request' ? '请求' : '响应' }}
+          <el-tag :type="getDirType(msg.direction)" size="small" effect="light" round>
+            {{ getDirLabel(msg.direction) }}
           </el-tag>
-          <span class="msg-type">{{ msg.messageType }}</span>
+          <code class="func-code">{{ msg.funcCode }}</code>
           <span class="msg-time">{{ msg.timestamp }}</span>
-          <el-button
-            type="primary"
-            link
-            size="small"
-            class="copy-btn"
-            @click="copyContent(msg)"
-          >
+          <el-tag :type="msg.status === 'success' ? 'success' : 'danger'" size="small" effect="light">
+            {{ msg.status === 'success' ? '通过' : '失败' }}
+          </el-tag>
+          <el-button type="primary" link size="small" @click="copyContent(msg)">
             复制内容
           </el-button>
         </div>
-        <pre class="msg-body"><code>{{ formatJson(msg.payload) }}</code></pre>
+        <div class="msg-body-row">
+          <pre class="msg-hex"><code>{{ msg.hexData || '--' }}</code></pre>
+          <pre class="msg-json"><code>{{ formatJson(msg.jsonData) }}</code></pre>
+        </div>
+        <div v-if="msg.errorMsg" class="error-msg">错误: {{ msg.errorMsg }}</div>
       </div>
-
-      <div v-if="filteredMessages.length === 0" class="empty-hint">
-        暂无报文数据
-      </div>
+      <div v-if="displayMessages.length === 0" class="empty-hint">暂无报文数据</div>
     </div>
 
     <template #footer>
@@ -69,105 +47,62 @@ import { ElMessage } from 'element-plus'
 
 const props = defineProps<{
   modelValue: boolean
+  messages?: any[]   // 从 TestDetailModal 通过 prop 传入的报文列表
 }>()
 
-const emit = defineEmits<{
-  'update:modelValue': [val: boolean]
-}>()
+const emit = defineEmits<{ 'update:modelValue': [val: boolean] }>()
 
 const visible = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v),
 })
 
-const filterType = ref('')
-
-// Mock messages - replace with real data
-const allMessages = ref([
-  {
-    direction: 'request',
-    messageType: 'BootNotification',
-    timestamp: '2026-03-05 14:30:01',
-    payload: '[2,"19210001","BootNotification",{"chargePointVendor":"NTS","chargePointModel":"GaterV160","firmwareVersion":"v1.6.0"}]',
-  },
-  {
-    direction: 'response',
-    messageType: 'BootNotification',
-    timestamp: '2026-03-05 14:30:01',
-    payload: '[3,"19210001",{"status":"Accepted","currentTime":"2026-03-05T14:30:01Z","interval":300}]',
-  },
-  {
-    direction: 'request',
-    messageType: 'Heartbeat',
-    timestamp: '2026-03-05 14:35:01',
-    payload: '[4,"19210001","Heartbeat",{}]',
-  },
-  {
-    direction: 'response',
-    messageType: 'Heartbeat',
-    timestamp: '2026-03-05 14:35:01',
-    payload: '[5,"19210001",{"currentTime":"2026-03-05T14:35:01Z"}]',
-  },
-])
-
-const filteredMessages = computed(() => {
-  if (!filterType.value) return allMessages.value
-  return allMessages.value.filter(m => m.direction === filterType.value)
+// Use prop messages if provided, fallback to empty array
+const displayMessages = computed(() => {
+  const msgs = props.messages
+  return Array.isArray(msgs) && msgs.length > 0 ? msgs : []
 })
 
 function formatJson(payload: string): string {
+  if (!payload) return ''
+  try { return JSON.stringify(JSON.parse(payload), null, 2) } catch { return payload }
+}
+
+async function copyContent(msg: any) {
+  const text = `HEX:\n${msg.hexData || ''}\n\nJSON:\n${formatJson(msg.jsonData)}`
   try {
-    const obj = JSON.parse(payload)
-    return JSON.stringify(obj, null, 2)
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制到剪贴板')
   } catch {
-    return payload
+    const ta = document.createElement('textarea')
+    ta.value = text; document.body.appendChild(ta)
+    ta.select(); document.execCommand('copy')
+    document.body.removeChild(ta)
+    ElMessage.success('已复制到剪贴板')
   }
 }
 
-async function copyContent(msg: { payload: string }) {
-  try {
-    await navigator.clipboard.writeText(formatJson(msg.payload))
-    ElMessage.success('已复制到剪贴板')
-  } catch {
-    // fallback for older browsers
-    const textarea = document.createElement('textarea')
-    textarea.value = formatJson(msg.payload)
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    ElMessage.success('已复制到剪贴板')
-  }
+function getDirType(dir: string): 'success' | 'primary' | 'info' | 'warning' | 'danger' | '' {
+  if (dir.includes('充电桩→')) return 'success'
+  if (dir.includes('平台→')) return 'primary'
+  if (dir.includes('回复')) return 'info'
+  return ''
+}
+
+function getDirLabel(dir: string): string {
+  if (dir.includes('充电桩→')) return '上行 ↑'
+  if (dir.includes('平台→')) return '下行 ↓'
+  if (dir.includes('回复')) return '回复 ↔'
+  return dir
 }
 </script>
 
 <style scoped>
 .filter-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
-.filter-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.filter-label {
-  font-size: 13px;
-  color: #666;
-}
-
-.filter-select {
-  width: 140px;
-}
-
-.msg-count {
-  font-size: 12px;
-  color: #999;
-}
+.msg-count { font-size: 12px; color: #999; }
 
 .message-list {
   max-height: 450px;
@@ -181,12 +116,8 @@ async function copyContent(msg: { payload: string }) {
   margin-bottom: 10px;
   background-color: #fafbfc;
   border-radius: 6px;
-  overflow: hidden;
 }
-
-.message-item:last-child {
-  margin-bottom: 0;
-}
+.message-item:last-child { margin-bottom: 0; }
 
 .msg-header {
   display: flex;
@@ -195,16 +126,17 @@ async function copyContent(msg: { payload: string }) {
   padding: 8px 14px;
   background-color: #f0f1f3;
   font-size: 12px;
+  flex-wrap: wrap;
 }
 
-.msg-index {
-  color: #999;
-  font-weight: 500;
-}
-
-.msg-type {
-  font-weight: 500;
-  color: #333;
+.func-code {
+  background: #f0f2f5;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+  color: #e6a23c;
+  white-space: nowrap;
 }
 
 .msg-time {
@@ -214,29 +146,36 @@ async function copyContent(msg: { payload: string }) {
   font-size: 11px;
 }
 
-.copy-btn {
-  font-size: 11px;
-}
-
-.msg-body {
-  margin: 0;
-  padding: 12px 14px;
+.msg-body-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
   background-color: #1e1e1e;
-  color: #d4d4d4;
-  font-size: 12px;
-  line-height: 1.5;
-  max-height: 200px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  padding: 12px 14px;
   border-radius: 0 0 6px 6px;
 }
 
-.empty-hint {
-  text-align: center;
-  color: #ccc;
-  padding: 40px 0;
-  font-size: 13px;
+.msg-hex,
+.msg-json {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #d4d4d4;
+  max-height: 120px;
+  min-width: 200px;
 }
+
+.error-msg {
+  padding: 6px 14px;
+  background-color: #fef0f0;
+  color: #f56c6c;
+  font-size: 11px;
+  border-top: 1px solid #fde2e2;
+}
+
+.empty-hint { text-align: center; color: #ccc; padding: 40px 0; font-size: 13px; }
 </style>

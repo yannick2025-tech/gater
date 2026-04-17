@@ -1,5 +1,10 @@
 import request from './request'
-import type { DeviceInfo } from '@/types/device'
+import type { DeviceInfo, SessionItem } from '@/types/device'
+
+// 获取所有活跃的TCP会话列表
+export function getSessions() {
+  return request.get<any, { total: number; list: SessionItem[] }>('/sessions')
+}
 
 export function getDeviceStatus(gunNumber: string) {
   return request.get<any, DeviceInfo>('/device/status', { params: { gunNumber } })

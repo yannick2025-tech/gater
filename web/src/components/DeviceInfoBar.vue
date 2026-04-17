@@ -2,7 +2,7 @@
   <div class="device-info-bar">
     <div class="info-left">
       <span class="info-item">
-        <label>检编号：</label>{{ gunNumber || '--' }}
+        <label>桩编号：</label>{{ gunNumber || '--' }}
       </span>
       <div class="info-divider"></div>
       <span class="info-item">
@@ -12,34 +12,54 @@
       <span class="info-item">
         <label>协议版本：</label>{{ protocolVersion || 'v1.6.0' }}
       </span>
+      <div class="info-divider"></div>
+      <el-tag v-if="isOnline" type="success" size="small" effect="light" round>在线</el-tag>
+      <el-tag v-if="!isOnline && gunNumber" type="info" size="small" effect="light" round>离线</el-tag>
     </div>
+
     <div class="info-right">
-      <!-- 未连接状态：显示输入框+连接按钮 -->
+      <!-- 会话选择器：下拉选择活跃会话 -->
       <template v-if="!isOnline">
-        <el-input
-          v-model="inputGunNumber"
-          placeholder="请输入充电桩编号"
+        <el-select
+          v-model="selectedSessionId"
+          placeholder="请选择充电桩会话"
           clearable
+          filterable
           size="default"
-          class="gun-input"
-          @keyup.enter="handleConnect"
+          class="session-select"
+          @change="handleSessionSelect"
         >
-          <template #append>
-            <el-button type="success" :disabled="!inputGunNumber.trim()" @click="handleConnect">
-              连接设备
-            </el-button>
-          </template>
-        </el-input>
+          <el-option-group v-for="(group, label) in groupedSessions" :key="label" :label="label">
+            <el-option
+              v-for="s in group"
+              :key="s.sessionId"
+              :value="s.sessionId"
+              :label="`桩${s.gunNumber} (${s.connectedAt})`"
+              :disabled="!s.isOnline"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>桩{{ s.gunNumber }}</span>
+                <el-tag v-if="s.isOnline" type="success" size="small">在线</el-tag>
+                <el-tag v-else type="info" size="small">{{ s.authState }}</el-tag>
+              </div>
+            </el-option>
+          </el-option-group>
+        </el-select>
+        <el-button plain size="default" class="refresh-btn" @click="$emit('refresh-sessions')">
+          刷新列表
+        </el-button>
       </template>
 
-      <!-- 已连接状态：显示断开按钮 -->
+      <!-- 已选中会话：显示断开按钮（历史会话置灰） -->
       <template v-else>
         <el-button
           type="danger"
           class="disconnect-btn"
+          :disabled="isHistorical"
+          :plain="isHistorical"
           @click="$emit('disconnect')"
         >
-          断开连接
+          {{ isHistorical ? '历史会话' : '断开连接' }}
         </el-button>
       </template>
     </div>
@@ -47,35 +67,59 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed } from 'vue'
+import type { SessionItem } from '@/types/device'
 
 const props = defineProps<{
   gunNumber: string
   isOnline?: boolean
   protocolName?: string
   protocolVersion?: string
+  sessions?: SessionItem[]
 }>()
 
 const emit = defineEmits<{
-  connect: [gunNumber: string]
+  'select-session': [session: SessionItem | null]
   disconnect: []
-  query: [gunNumber: string]
+  'refresh-sessions': []
 }>()
 
-const inputGunNumber = ref('')
+const selectedSessionId = ref<string>('')
 
-// 外部枪号变化时同步到输入框（如通过query触发）
-watch(() => props.gunNumber, (val) => {
-  if (val && !inputGunNumber.value) {
-    inputGunNumber.value = val
-  }
+// 将session按状态分组：在线的在前，认证中的其次，其他的最后
+const groupedSessions = computed(() => {
+  const list = props.sessions || []
+  const online = list.filter(s => s.isOnline)
+  const pending = list.filter(s => !s.isOnline && s.authState === 'pending')
+  const offline = list.filter(s => !s.isOnline && s.authState !== 'pending')
+  
+  const result: Record<string, SessionItem[]> = {}
+  if (online.length > 0) result['在线会话'] = online
+  if (pending.length > 0) result['认证中'] = pending
+  if (offline.length > 0) result['离线/其他'] = offline
+  return result
 })
 
-function handleConnect() {
-  const num = inputGunNumber.value.trim()
-  if (num) {
-    emit('connect', num)
+// 是否为历史会话（已断开但还在内存或DB中有记录）
+const isHistorical = computed(() => {
+  return !props.isOnline && !!props.gunNumber
+})
+
+// 外部props变化时同步selectedSessionId
+function syncFromProps() {
+  if (!props.isOnline && selectedSessionId.value) {
+    // 断开了，清空选择
+    selectedSessionId.value = ''
   }
+}
+
+function handleSessionSelect(sessionId: string | undefined) {
+  if (!sessionId) {
+    emit('select-session', null)
+    return
+  }
+  const sess = props.sessions?.find(s => s.sessionId === sessionId)
+  emit('select-session', sess || null)
 }
 </script>
 
@@ -120,8 +164,12 @@ function handleConnect() {
   gap: 8px;
 }
 
-.gun-input {
+.session-select {
   width: 320px;
+}
+
+.refresh-btn {
+  border-radius: 6px;
 }
 
 .disconnect-btn {

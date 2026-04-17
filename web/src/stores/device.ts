@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { DeviceInfo } from '@/types/device'
-import { getDeviceStatus, disconnectDevice, connectDevice } from '@/api/device'
+import type { DeviceInfo, SessionItem } from '@/types/device'
+import { getDeviceStatus, disconnectDevice, connectDevice, getSessions } from '@/api/device'
 
 export const useDeviceStore = defineStore('device', () => {
   const deviceInfo = ref<DeviceInfo>({
@@ -10,6 +10,10 @@ export const useDeviceStore = defineStore('device', () => {
     protocolVersion: '',
     isOnline: false,
   })
+
+  // 当前选中的session（从会话列表中选择）
+  const selectedSession = ref<SessionItem | null>(null)
+  const sessionList = ref<SessionItem[]>([])
 
   const loading = ref(false)
 
@@ -32,7 +36,6 @@ export const useDeviceStore = defineStore('device', () => {
     loading.value = true
     try {
       deviceInfo.value.gunNumber = gunNumber
-      // 调用后端连接注册接口，在 connRegistry 中标记设备为已连接
       await connectDevice(gunNumber)
       deviceInfo.value.isOnline = true
       if (!deviceInfo.value.protocolName) {
@@ -60,7 +63,48 @@ export const useDeviceStore = defineStore('device', () => {
 
   function reset() {
     deviceInfo.value = { gunNumber: '', protocolName: '', protocolVersion: '', isOnline: false }
+    selectedSession.value = null
   }
 
-  return { deviceInfo, loading, fetchStatus, query, connect, disconnect, reset }
+  // 获取所有活跃的TCP会话列表（充电桩主动连接gater产生的）
+  async function fetchSessions() {
+    try {
+      const data = await getSessions()
+      sessionList.value = data.list || []
+    } catch (e) {
+      sessionList.value = []
+    }
+  }
+
+  // 选择一个会话进行测试
+  function selectSession(session: SessionItem | null) {
+    selectedSession.value = session
+    if (session) {
+      deviceInfo.value.gunNumber = session.gunNumber
+      deviceInfo.value.sessionId = session.sessionId
+      deviceInfo.value.isOnline = true
+      deviceInfo.value.protocolName = session.protocolName
+      deviceInfo.value.protocolVersion = session.protocolVersion
+    }
+  }
+
+  // 定期刷新会话列表
+  let sessionTimer: ReturnType<typeof setInterval> | null = null
+  function startSessionPolling(intervalMs = 10000) {
+    stopSessionPolling()
+    fetchSessions() // 立即拉取一次
+    sessionTimer = setInterval(fetchSessions, intervalMs)
+  }
+  function stopSessionPolling() {
+    if (sessionTimer) {
+      clearInterval(sessionTimer)
+      sessionTimer = null
+    }
+  }
+
+  return {
+    deviceInfo, loading, fetchStatus, query, connect, disconnect, reset,
+    selectedSession, sessionList, fetchSessions, selectSession,
+    startSessionPolling, stopSessionPolling,
+  }
 })

@@ -39,7 +39,7 @@
       <el-table-column prop="startTime" label="测试时间" min-width="170" />
       <el-table-column label="操作" width="120" align="right">
         <template #default="{ row }">
-          <el-button type="primary" link @click="$emit('view-detail', row.id)">
+          <el-button type="primary" link @click="$emit('view-detail', row)">
             查看详情
           </el-button>
         </template>
@@ -77,7 +77,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'view-detail': [id: number]
+  'view-detail': [row: Record<string, any>]
   export: []
 }>()
 

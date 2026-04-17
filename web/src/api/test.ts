@@ -1,8 +1,9 @@
 import request from './request'
-import type { TestResult, TestDetail, TestStatus, ConfigItem } from '@/types/test'
+import type { TestResult, TestDetail, TestStatus, ConfigItem, MessageArchive } from '@/types/test'
 
-export function startTest(testCase: string, gunNumber: string, params?: Record<string, unknown>) {
-  return request.post<any, TestStatus>('/test/start', { testCase, gunNumber, params })
+// 开始测试（基于已存在的TCP会话）
+export function startTest(testCase: string, sessionId: string = '', params?: Record<string, unknown>) {
+  return request.post<any, TestStatus>('/test/start', { testCase, sessionId, params })
 }
 
 export function getTestStatus(sessionId: string) {
@@ -17,6 +18,12 @@ export function getTestResults(page: number, pageSize: number, startTime?: strin
 
 export function getTestDetail(sessionId: string) {
   return request.get<any, TestDetail>(`/test/detail/${sessionId}`)
+}
+
+export function getMessageArchives(sessionId: string, funcCode: string, status: string) {
+  return request.get<any, MessageArchive[]>(`/test/messages/${sessionId}`, {
+    params: { sessionID: sessionId, funcCode, status },
+  })
 }
 
 export function decodeMessage(hex: string) {

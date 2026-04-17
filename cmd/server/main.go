@@ -47,6 +47,13 @@ func main() {
 	defer database.Close()
 	logger.Info("database initialized")
 
+	// 填充测试种子数据（开发阶段：模拟已结束的会话，供前端验证）
+	if err := report.SeedTestData(); err != nil {
+		logger.Warnf("seed test data: %v", err)
+	} else {
+		logger.Info("seed test data ready")
+	}
+
 	proto := standard.New()
 	logger.Infof("protocol: name=%s, version=0x%02X, registered_messages=%d",
 		proto.Name(), proto.Version(), len(proto.Registry().AllSpecs()))
