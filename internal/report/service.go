@@ -185,5 +185,18 @@ func UpdateReportPDFPath(sessionID string, pdfPath string) error {
 		Update("pdf_path", pdfPath).Error
 }
 
+// GetAllSessionSummaries 获取所有会话摘要（用于会话列表展示，合并活跃+历史）
+func GetAllSessionSummaries() ([]model.TestReport, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var reports []model.TestReport
+	if err := db.Order("start_time DESC").Find(&reports).Error; err != nil {
+		return nil, err
+	}
+	return reports, nil
+}
+
 // Ensure interface compliance
 var _ = (*gorm.DB)(nil)

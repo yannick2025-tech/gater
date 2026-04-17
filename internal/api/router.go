@@ -203,25 +203,50 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": respData})
 }
 
-// getSessions 获取所有活跃的TCP会话列表
+// getSessions 获取所有TCP会话列表（活跃内存会话 + 数据库历史会话）
 // GET /api/sessions
 func (r *Router) getSessions(c *gin.Context) {
-	sessions := r.sessMgr.GetAllSessions()
+	// 1. 收集内存中活跃的session（用于去重）
+	activeSessionIDs := make(map[string]bool)
 
+	// 2. 内存中的活跃会话
+	sessions := r.sessMgr.GetAllSessions()
 	list := make([]gin.H, 0, len(sessions))
 	for _, sess := range sessions {
 		authState := sess.GetAuthState().String()
 		list = append(list, gin.H{
-			"sessionId":   sess.ID,
-			"postNo":      sess.PostNo,
-			"gunNumber":   fmt.Sprintf("%d", sess.PostNo),
-			"authState":   authState,
-			"isOnline":    authState == "authenticated",
-			"protocolName": "XX标准协议",
+			"sessionId":       sess.ID,
+			"postNo":          sess.PostNo,
+			"gunNumber":       fmt.Sprintf("%d", sess.PostNo),
+			"authState":       authState,
+			"isOnline":        authState == "authenticated",
+			"protocolName":    "XX标准协议",
 			"protocolVersion": "v1.6.0",
-			"connectedAt": sess.CreatedAt.Format("2006-01-02 15:04:05"),
-			"lastActive":  sess.LastActive.Format("2006-01-02 15:04:05"),
+			"connectedAt":     sess.CreatedAt.Format("2006-01-02 15:04:05"),
+			"lastActive":      sess.LastActive.Format("2006-01-02 15:04:05"),
 		})
+		activeSessionIDs[sess.ID] = true
+	}
+
+	// 3. 从数据库加载历史会话报告（补充不在内存中的已结束会话）
+	if dbReports, err := report.GetAllSessionSummaries(); err == nil {
+		for _, rep := range dbReports {
+			// 跳过已在内存中活跃的session，避免重复
+			if activeSessionIDs[rep.SessionID] {
+				continue
+			}
+			list = append(list, gin.H{
+				"sessionId":       rep.SessionID,
+				"postNo":          rep.PostNo,
+				"gunNumber":       fmt.Sprintf("%d", rep.PostNo),
+				"authState":       rep.Status,
+				"isOnline":        false,
+				"protocolName":    rep.ProtocolName,
+				"protocolVersion": rep.ProtocolVer,
+				"connectedAt":     rep.StartTime.Format("2006-01-02 15:04:05"),
+				"lastActive":      rep.EndTime.Format("2006-01-02 15:04:05"),
+			})
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

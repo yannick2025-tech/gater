@@ -1,73 +1,106 @@
 <template>
   <div class="device-info-bar">
-    <div class="info-left">
-      <span class="info-item">
-        <label>桩编号：</label>{{ gunNumber || '--' }}
-      </span>
-      <div class="info-divider"></div>
-      <span class="info-item">
-        <label>协议名称：</label>{{ protocolName || 'XX标准协议' }}
-      </span>
-      <div class="info-divider"></div>
-      <span class="info-item">
-        <label>协议版本：</label>{{ protocolVersion || 'v1.6.0' }}
-      </span>
-      <div class="info-divider"></div>
-      <el-tag v-if="isOnline" type="success" size="small" effect="light" round>在线</el-tag>
-      <el-tag v-if="!isOnline && gunNumber" type="info" size="small" effect="light" round>离线</el-tag>
+    <!-- 模式1：会话选择列表（未选中任何会话时显示） -->
+    <div v-if="effectiveMode === 'select'" class="session-select-mode">
+      <!-- Header -->
+      <div class="select-header">
+        <h3 class="card-title">会话列表</h3>
+        <el-button plain size="small" @click="$emit('refresh-sessions')">
+          刷新
+        </el-button>
+      </div>
+
+      <!-- 会话表格 -->
+      <el-table
+        :data="sessions"
+        stripe
+        style="width: 100%"
+        :header-cell-style="{ background: '#fafafa', color: '#666', fontWeight: '500' }"
+        empty-text="暂无可用会话（等待充电桩连接...）"
+        highlight-current-row
+        @row-click="handleRowClick"
+      >
+        <el-table-column prop="gunNumber" label="桩编号" min-width="140" />
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.isOnline" type="success" effect="light" size="small" round>在线</el-tag>
+            <el-tag v-else-if="row.authState === 'pending'" type="warning" effect="light" size="small" round>认证中</el-tag>
+            <el-tag v-else type="info" effect="light" size="small" round>{{ row.authState }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="connectedAt" label="连接时间" min-width="160" />
+        <el-table-column prop="lastActive" label="最后活跃" min-width="160" />
+        <el-table-column label="操作" width="100" align="center">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.isOnline"
+              type="primary"
+              link
+              size="small"
+              @click.stop="handleSelectSession(row)"
+            >
+              选择
+            </el-button>
+            <el-button
+              v-else
+              type="primary"
+              link
+              size="small"
+              @click.stop="handleSelectSession(row)"
+            >
+              查看
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="select-footer-hint">
+        <span class="hint-text">请选择一个会话以继续操作。在线会话可进行测试，离线/历史会话仅可查看报告。</span>
+      </div>
     </div>
 
-    <div class="info-right">
-      <!-- 会话选择器：下拉选择活跃会话 -->
-      <template v-if="!isOnline">
-        <el-select
-          v-model="selectedSessionId"
-          placeholder="请选择充电桩会话"
-          clearable
-          filterable
-          size="default"
-          class="session-select"
-          @change="handleSessionSelect"
-        >
-          <el-option-group v-for="(group, label) in groupedSessions" :key="label" :label="label">
-            <el-option
-              v-for="s in group"
-              :key="s.sessionId"
-              :value="s.sessionId"
-              :label="`桩${s.gunNumber} (${s.connectedAt})`"
-              :disabled="!s.isOnline"
-            >
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>桩{{ s.gunNumber }}</span>
-                <el-tag v-if="s.isOnline" type="success" size="small">在线</el-tag>
-                <el-tag v-else type="info" size="small">{{ s.authState }}</el-tag>
-              </div>
-            </el-option>
-          </el-option-group>
-        </el-select>
-        <el-button plain size="default" class="refresh-btn" @click="$emit('refresh-sessions')">
-          刷新列表
-        </el-button>
-      </template>
+    <!-- 模式2：设备信息栏（已选中会话后显示） -->
+    <template v-else>
+      <div class="info-left">
+        <span class="info-item">
+          <label>桩编号：</label>{{ gunNumber || '--' }}
+        </span>
+        <div class="info-divider"></div>
+        <span class="info-item">
+          <label>协议名称：</label>{{ protocolName || '--' }}
+        </span>
+        <div class="info-divider"></div>
+        <span class="info-item">
+          <label>协议版本：</label>{{ protocolVersion || '--' }}
+        </span>
+        <div class="info-divider"></div>
+        <el-tag v-if="isOnline" type="success" size="small" effect="light" round>在线</el-tag>
+        <el-tag v-if="!isOnline && gunNumber" type="info" size="small" effect="light" round>历史</el-tag>
+      </div>
 
-      <!-- 已选中会话：显示断开按钮（历史会话置灰） -->
-      <template v-else>
+      <div class="info-right">
+        <!-- 返回选择列表 -->
+        <el-button plain size="small" class="back-btn" @click="$emit('back-to-list')">
+          重新选择
+        </el-button>
+
+        <!-- 断开按钮（活跃会话可点击，历史置灰） -->
         <el-button
           type="danger"
           class="disconnect-btn"
-          :disabled="isHistorical"
-          :plain="isHistorical"
+          :disabled="!isOnline"
+          :plain="!isOnline"
           @click="$emit('disconnect')"
         >
-          {{ isHistorical ? '历史会话' : '断开连接' }}
+          {{ isOnline ? '断开连接' : '历史会话' }}
         </el-button>
-      </template>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import type { SessionItem } from '@/types/device'
 
 const props = defineProps<{
@@ -76,62 +109,96 @@ const props = defineProps<{
   protocolName?: string
   protocolVersion?: string
   sessions?: SessionItem[]
+  /** 显示模式：'select'=会话列表, 'detail'=设备信息栏 */
+  mode?: 'select' | 'detail'
 }>()
 
 const emit = defineEmits<{
-  'select-session': [session: SessionItem | null]
+  'select-session': [session: SessionItem]
   disconnect: []
   'refresh-sessions': []
+  'back-to-list': []
 }>()
 
-const selectedSessionId = ref<string>('')
+// 默认根据是否有gunNumber判断模式；也可由外部显式控制
+const effectiveMode = computed(() => props.mode || (props.gunNumber ? 'detail' : 'select'))
 
-// 将session按状态分组：在线的在前，认证中的其次，其他的最后
-const groupedSessions = computed(() => {
-  const list = props.sessions || []
-  const online = list.filter(s => s.isOnline)
-  const pending = list.filter(s => !s.isOnline && s.authState === 'pending')
-  const offline = list.filter(s => !s.isOnline && s.authState !== 'pending')
-  
-  const result: Record<string, SessionItem[]> = {}
-  if (online.length > 0) result['在线会话'] = online
-  if (pending.length > 0) result['认证中'] = pending
-  if (offline.length > 0) result['离线/其他'] = offline
-  return result
-})
-
-// 是否为历史会话（已断开但还在内存或DB中有记录）
-const isHistorical = computed(() => {
-  return !props.isOnline && !!props.gunNumber
-})
-
-// 外部props变化时同步selectedSessionId
-function syncFromProps() {
-  if (!props.isOnline && selectedSessionId.value) {
-    // 断开了，清空选择
-    selectedSessionId.value = ''
-  }
+function handleRowClick(row: SessionItem) {
+  // 行点击也触发选择
 }
 
-function handleSessionSelect(sessionId: string | undefined) {
-  if (!sessionId) {
-    emit('select-session', null)
-    return
-  }
-  const sess = props.sessions?.find(s => s.sessionId === sessionId)
-  emit('select-session', sess || null)
+function handleSelectSession(session: SessionItem) {
+  emit('select-session', session)
 }
 </script>
 
 <style scoped>
 .device-info-bar {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* ========== 模式1：会话选择列表 ========== */
+.session-select-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.select-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.session-select-mode :deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+}
+
+.session-select-mode :deep(.el-table th.el-table__cell) {
+  border-bottom: none;
+  font-size: 13px;
+}
+
+.session-select-mode :deep(.el-table td.el-table__cell) {
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.session-select-mode :deep(.el-table--striped .el-table__body tr.el-table__row--striped td) {
+  background-color: #fafbfc;
+}
+
+.session-select-mode :deep(.el-table .current-row > td) {
+  background-color: #ecf5ff !important;
+}
+
+.select-footer-hint {
+  padding: 8px 4px;
+}
+
+.hint-text {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.6;
+}
+
+/* ========== 模式2：设备信息栏 ========== */
+.device-info-bar:not(:has(.session-select-mode)) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-radius: 8px;
   padding: 16px 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .info-left {
@@ -164,11 +231,7 @@ function handleSessionSelect(sessionId: string | undefined) {
   gap: 8px;
 }
 
-.session-select {
-  width: 320px;
-}
-
-.refresh-btn {
+.back-btn {
   border-radius: 6px;
 }
 

@@ -160,12 +160,25 @@ export const useTestStore = defineStore('test', () => {
     }
   }
 
+  /** 按sessionId加载该会话的历史测试结果（用于历史会话查看报告） */
+  async function fetchResultsBySession(sessionId: string) {
+    loading.value = true
+    try {
+      const data = await getTestResults(1, 100, '', '', sessionId)
+      testResults.value = data.list || []
+      total.value = data.total || 0
+      currentPage.value = 1
+    } finally {
+      loading.value = false
+    }
+  }
+
   // 页面加载时自动拉取历史测试结果（从MySQL）
   fetchResults(1)
 
   return {
     testResults, total, currentPage, pageSize, loading, currentStatus,
-    fetchResults, startTest, startTestWithConfig, startConfigTest, exportReport,
+    fetchResults, fetchResultsBySession, startTest, startTestWithConfig, startConfigTest, exportReport,
     startPolling, stopPolling, markTestCompleted,
   }
 })

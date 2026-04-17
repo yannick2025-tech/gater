@@ -10,9 +10,9 @@ export function getTestStatus(sessionId: string) {
   return request.get<any, TestStatus>(`/test/status/${sessionId}`)
 }
 
-export function getTestResults(page: number, pageSize: number, startTime?: string, endTime?: string) {
+export function getTestResults(page: number, pageSize: number, startTime?: string, endTime?: string, sessionId?: string) {
   return request.get<any, { total: number; page: number; pageSize: number; list: TestResult[] }>('/test/results', {
-    params: { page, pageSize, startTime, endTime },
+    params: { page, pageSize, startTime, endTime, sessionId },
   })
 }
 

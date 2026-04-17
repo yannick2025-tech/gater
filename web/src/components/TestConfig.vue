@@ -136,10 +136,10 @@
         </div>
       </template>
 
-      <!-- Footer: 开始测试按钮 (未连接时禁用+提示) -->
+      <!-- Footer: 开始测试按钮（未选择活跃会话时禁用+提示） -->
       <div class="card-footer">
-        <span v-if="!isOnline" class="offline-hint">请先连接设备</span>
-        <el-button type="primary" size="large" class="start-btn" :disabled="!isOnline" @click="handleStart">
+        <span v-if="!canStartTest" class="offline-hint">请选择一个活跃会话</span>
+        <el-button type="primary" size="large" class="start-btn" :disabled="!canStartTest" @click="handleStart">
           开始测试
         </el-button>
       </div>
@@ -153,7 +153,8 @@ import { ElMessage, type FormInstance } from 'element-plus'
 import PriceTable, { type PriceRow } from './PriceTable.vue'
 
 const props = defineProps<{
-  isOnline?: boolean
+  /** 是否允许开始测试（基于是否选中了活跃会话） */
+  canStartTest?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -207,8 +208,8 @@ const payloadError = computed(() => {
 })
 
 function handleStart() {
-  if (!props.isOnline) {
-    ElMessage.warning('请先连接设备')
+  if (!props.canStartTest) {
+    ElMessage.warning('请选择一个活跃会话')
     return
   }
   if (!formData.value.scenario) {
