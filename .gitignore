@@ -49,6 +49,7 @@ configs/config.local.yaml
 
 # Log files
 *.log
+logs/
 
 # temp files
 .understand-anything/

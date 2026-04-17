@@ -332,25 +332,9 @@ func onDisconnect(conn *server.Connection, postNo uint32, sessMgr *session.Sessi
 }
 
 func initLogger(cfg config.LogConfig) logging.Logger {
-	logCfg := &logging.Config{
-		LevelStr:      cfg.Level,
-		Format:        logging.TextFormat,
-		Target:        logging.StdoutTarget,
-		Filename:      cfg.Filename,
-		MaxSize:       cfg.MaxSize,
-		MaxBackups:    cfg.MaxBackups,
-		MaxAge:        cfg.MaxAge,
-		Compress:      cfg.Compress,
-		LocalTime:     true,
-		FlushInterval: 5,
-	}
-
-	logger, err := logging.NewZapLogger(logCfg)
-	if err != nil {
-		panic(fmt.Sprintf("failed to init logger: %v", err))
-	}
-
-	return logger
+	// 使用 gwc-logging 的 InitFromConfig 加载独立日志配置文件
+	// 配置文件：configs/logging.yaml（支持 target/filename/format/flush_interval 等完整字段）
+	return logging.InitFromConfig("configs/logging.yaml")
 }
 
 // heartbeatCheckLoop 定期检查心跳超时的会话，断开连接并生成报告

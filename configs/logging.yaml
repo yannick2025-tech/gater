@@ -1,0 +1,14 @@
+# nts-gater 日志配置
+# 由 gwc-logging 的 InitFromConfig 加载
+
+level: "info"
+format: "text"
+target: "file"
+filename: "logs/gater.log"
+max_size: 200
+max_backups: 20
+max_age: 30
+compress: true
+local_time: true
+caller_skip: 0
+flush_interval: "5s"
