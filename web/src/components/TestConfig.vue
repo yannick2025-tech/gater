@@ -5,11 +5,10 @@
       <h3 class="card-title">测试配置</h3>
     </div>
 
-    <!-- Form（历史会话时整体置灰只读） -->
+    <!-- Form（历史会话时通过CSS置灰只读，不用:disabled避免Element Plus内部状态闪烁） -->
     <el-form
       ref="formRef"
       :model="formData"
-      :disabled="isHistorical"
       label-width="0px"
       class="config-form"
       :class="{ 'form-disabled': isHistorical }"
@@ -17,7 +16,7 @@
     >
       <!-- 用例选择 -->
       <div class="form-section">
-        <label class="required-label">请选择测试用例 *</label>
+        <label class="required-label"><span class="label-asterisk">*</span> 请选择测试用例</label>
         <el-select
           v-model="formData.scenario"
           placeholder="请选择"
@@ -287,12 +286,13 @@ function handleStart() {
   font-size: 14px;
   font-weight: 500;
   color: #333;
+  display: inline-block;
+  line-height: 1.4;
 }
 
-.required-label::before {
-  content: '*';
+.label-asterisk {
   color: #f56c6c;
-  margin-right: 4px;
+  margin-right: 2px;
 }
 
 .full-select {
@@ -391,23 +391,16 @@ function handleStart() {
   padding: 10px 28px;
 }
 
-/* 历史会话时表单置灰效果 */
+/* 历史会话时表单置灰只读 — 用CSS阻断交互，不用el-form的:disabled（会导致Element Plus内部状态闪烁） */
 .form-disabled {
   opacity: 0.6;
   pointer-events: none;
+  user-select: none;
 }
 
 .form-disabled :deep(.el-input__inner),
 .form-disabled :deep(.el-textarea__inner) {
   background-color: #f5f7fa;
   color: #999;
-}
-
-.form-disabled :deep(.el-select .el-input__inner) {
-  background-color: #f5f7fa;
-}
-
-.form-disabled :deep(.el-input-number .el-input__inner) {
-  background-color: #f5f7fa;
 }
 </style>

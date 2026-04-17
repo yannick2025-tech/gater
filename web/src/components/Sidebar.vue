@@ -2,7 +2,7 @@
   <aside class="sidebar">
     <!-- Logo / Header -->
     <div class="sidebar-header">
-      <span class="sidebar-title">系统账单</span>
+      <span class="sidebar-title">NTS Gater</span>
     </div>
 
     <!-- Menu -->
