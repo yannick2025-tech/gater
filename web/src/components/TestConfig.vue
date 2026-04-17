@@ -5,12 +5,14 @@
       <h3 class="card-title">测试配置</h3>
     </div>
 
-    <!-- Form -->
+    <!-- Form（历史会话时整体置灰只读） -->
     <el-form
       ref="formRef"
       :model="formData"
+      :disabled="isHistorical"
       label-width="0px"
       class="config-form"
+      :class="{ 'form-disabled': isHistorical }"
       label-position="top"
     >
       <!-- 用例选择 -->
@@ -136,11 +138,18 @@
         </div>
       </template>
 
-      <!-- Footer: 开始测试按钮（未选择活跃会话时禁用+提示） -->
+      <!-- Footer：历史/活跃会话不同提示 -->
       <div class="card-footer">
-        <span v-if="!canStartTest" class="offline-hint">请选择一个活跃会话</span>
-        <el-button type="primary" size="large" class="start-btn" :disabled="!canStartTest" @click="handleStart">
-          开始测试
+        <span v-if="isHistorical" class="offline-hint">该会话已完成，仅可查看配置</span>
+        <span v-else-if="!canStartTest" class="offline-hint">请选择一个活跃会话</span>
+        <el-button
+          type="primary"
+          size="large"
+          class="start-btn"
+          :disabled="!canStartTest || isHistorical"
+          @click="handleStart"
+        >
+          {{ isHistorical ? '已结束' : '开始测试' }}
         </el-button>
       </div>
     </el-form>
@@ -155,6 +164,8 @@ import PriceTable, { type PriceRow } from './PriceTable.vue'
 const props = defineProps<{
   /** 是否允许开始测试（基于是否选中了活跃会话） */
   canStartTest?: boolean
+  /** 是否为历史会话（只读模式，不可配置） */
+  isHistorical?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -378,5 +389,25 @@ function handleStart() {
   border-radius: 6px;
   font-size: 14px;
   padding: 10px 28px;
+}
+
+/* 历史会话时表单置灰效果 */
+.form-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.form-disabled :deep(.el-input__inner),
+.form-disabled :deep(.el-textarea__inner) {
+  background-color: #f5f7fa;
+  color: #999;
+}
+
+.form-disabled :deep(.el-select .el-input__inner) {
+  background-color: #f5f7fa;
+}
+
+.form-disabled :deep(.el-input-number .el-input__inner) {
+  background-color: #f5f7fa;
 }
 </style>

@@ -20,7 +20,8 @@
         highlight-current-row
         @row-click="handleRowClick"
       >
-        <el-table-column prop="gunNumber" label="桩编号" min-width="140" />
+        <el-table-column prop="sessionId" label="会话ID" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="gunNumber" label="桩编号" min-width="120" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.isOnline" type="success" effect="light" size="small" round>在线</el-tag>

@@ -82,9 +82,9 @@ export const useDeviceStore = defineStore('device', () => {
     if (session) {
       deviceInfo.value.gunNumber = session.gunNumber
       deviceInfo.value.sessionId = session.sessionId
-      deviceInfo.value.isOnline = true
-      deviceInfo.value.protocolName = session.protocolName
-      deviceInfo.value.protocolVersion = session.protocolVersion
+      deviceInfo.value.isOnline = session.isOnline   // 保持原始在线状态，不硬编码true
+      deviceInfo.value.protocolName = session.protocolName || 'XX标准协议'
+      deviceInfo.value.protocolVersion = session.protocolVersion || 'v1.6.0'
     }
   }
 

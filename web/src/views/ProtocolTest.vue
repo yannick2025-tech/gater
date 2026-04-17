@@ -14,19 +14,18 @@
       @back-to-list="handleBackToList"
     />
 
-    <!-- 第2块：测试配置（仅活跃会话时显示，否则隐藏占位） -->
-    <div class="section-wrapper" :class="{ 'section-hidden': !showTestConfig }">
+    <!-- 第2块：测试配置（选中会话后始终显示；历史会话时置灰只读） -->
+    <div class="section-wrapper" v-if="selectionState !== 'none'">
       <TestConfig
-        v-if="showTestConfig"
         :can-start-test="hasActiveSession"
+        :is-historical="selectionState === 'historical'"
         @start="handleStartTest"
       />
     </div>
 
-    <!-- 第3块：测试结果（选中会话后显示，否则隐藏占位） -->
-    <div class="section-wrapper" :class="{ 'section-hidden': !showTestResults }">
+    <!-- 第3块：测试结果（选中会话后显示） -->
+    <div class="section-wrapper" v-if="selectionState !== 'none'">
       <TestResults
-        v-if="showTestResults"
         :results="filteredResults"
         @view-detail="handleViewDetail"
         @export="handleExportReport"
@@ -84,12 +83,6 @@ const viewMode = computed<'select' | 'detail'>(() => {
 
 /** 是否有活跃会话（用于控制"开始测试"按钮） */
 const hasActiveSession = computed(() => selectionState.value === 'active')
-
-/** 是否显示测试配置区B */
-const showTestConfig = computed(() => selectionState.value === 'active')
-
-/** 是否显示测试结果区C */
-const showTestResults = computed(() => selectionState.value !== 'none')
 
 /**
  * 测试结果列表：
@@ -184,18 +177,5 @@ function handleExportReport() {
   padding: 20px;
   height: 100%;
   overflow-y: auto;
-}
-
-/* 隐藏但保留布局空间的wrapper */
-.section-wrapper {
-  transition: opacity 0.2s ease;
-}
-
-.section-hidden {
-  /* 隐藏内容但保留高度，防止页面跳动 */
-  min-height: 300px;
-  visibility: hidden;
-  pointer-events: none;
-  margin: -16px 0; /* 抵消gap，让视觉上更自然 */
 }
 </style>
