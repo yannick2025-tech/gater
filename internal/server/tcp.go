@@ -15,7 +15,7 @@ import (
 )
 
 // MessageHandler 消息处理回调
-type MessageHandler func(conn *Connection, header types.MessageHeader, data []byte)
+type MessageHandler func(conn *Connection, header types.MessageHeader, data []byte, rawFrame []byte)
 
 // Connection TCP连接
 type Connection struct {
@@ -44,6 +44,20 @@ func (c *Connection) Send(header types.MessageHeader, data []byte, encryptFn fun
 	}
 
 	_, err = c.Conn.Write(frame)
+	if err != nil {
+		return fmt.Errorf("write conn failed: %w", err)
+	}
+
+	c.LastActive = time.Now()
+	return nil
+}
+
+// SendFrame 发送已编码的完整帧（线程安全）
+func (c *Connection) SendFrame(frame []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	_, err := c.Conn.Write(frame)
 	if err != nil {
 		return fmt.Errorf("write conn failed: %w", err)
 	}
@@ -235,7 +249,7 @@ func (s *Server) handleConnection(ctx context.Context, conn *Connection) {
 
 			// 回调处理
 			if s.handler != nil {
-				s.handler(conn, result.Header, result.DecryptedData)
+				s.handler(conn, result.Header, result.DecryptedData, frame)
 			}
 		}
 	}

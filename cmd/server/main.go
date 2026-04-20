@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -69,8 +70,8 @@ func main() {
 	// 场景引擎（需在TCP回调之前创建，因为回调中引用它）
 	scenarioEngine := scenario.NewEngine(sessMgr, srv, proto, logger)
 
-	srv.OnMessage(func(conn *server.Connection, header types.MessageHeader, data []byte) {
-		onMessage(conn, header, data, proto, sessMgr, frameValidator, dp, scenarioEngine, logger)
+	srv.OnMessage(func(conn *server.Connection, header types.MessageHeader, data []byte, rawFrame []byte) {
+		onMessage(conn, header, data, rawFrame, proto, sessMgr, frameValidator, dp, scenarioEngine, logger)
 	})
 	srv.OnDisconnect(func(conn *server.Connection, postNo uint32) {
 		onDisconnect(conn, postNo, sessMgr, proto, scenarioEngine, logger)
@@ -149,7 +150,7 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
-func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
+func onMessage(conn *server.Connection, header types.MessageHeader, data []byte, rawFrame []byte,
 	proto types.Protocol, sessMgr *session.SessionManager,
 	frameValidator *validator.FrameValidator, dp *dispatcher.Dispatcher,
 	scenarioEngine *scenario.Engine, logger logging.Logger,
@@ -230,7 +231,8 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	hexData := fmt.Sprintf("% X", data)
 	jsonData := ""
 	if msg != nil {
-		jsonData = fmt.Sprintf("%+v", msg.ToJSONMap())
+		jsonBytes, _ := json.Marshal(msg.ToJSONMap())
+		jsonData = string(jsonBytes)
 	}
 	sess.Recorder.RecordRecv(header.FuncCode, msgStatus, hexData, jsonData, decodeErr)
 
@@ -249,15 +251,19 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		}
 	}()
 
-	// 7. 日志（包含hex和json，带sessionID便于定位完整会话周期）
+	// 7. 日志（完整帧hex + 完整消息json，带sessionID便于定位完整会话周期）
+	frameHex := fmt.Sprintf("% X", rawFrame)
+	// 构建完整消息JSON：帧头字段 + 消息体字段
+	msgJSON := buildMessageJSON(header, msg)
 	if msg != nil {
 		logger.Infof("[%s] [RECV ↑] [0x%02X] %s postNo=%d charger=%d status=%s",
 			sess.ID, header.FuncCode, msg.Spec().Name, header.PostNo, header.Charger, msgStatus)
-		logger.Infof("[%s] [RECV ↑] [0x%02X] HEX: %s", sess.ID, header.FuncCode, hexData)
-		logger.Infof("[%s] [RECV ↑] [0x%02X] JSON: %s", sess.ID, header.FuncCode, jsonData)
+		logger.Infof("[%s] [RECV ↑] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
+		logger.Infof("[%s] [RECV ↑] [0x%02X] JSON: %s", sess.ID, header.FuncCode, msgJSON)
 	} else {
 		logger.Warnf("[%s] [RECV ↑] [0x%02X] decode failed postNo=%d status=%s",
 			sess.ID, header.FuncCode, header.PostNo, msgStatus)
+		logger.Infof("[%s] [RECV ↑] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
 	}
 
 	// 8. 分发
@@ -268,13 +274,29 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		replyHeader.Version = proto.Version()
 		replyHeader.StartByte = proto.FrameConfig().StartByte
 
+		// 编码完整帧（用于日志打印完整hex）
+		replyFrame, encErr := conn.Encoder.Encode(replyHeader, replyData, encryptFn)
+		if encErr != nil {
+			logger.Errorf("[%s] [SEND ↓] [0x%02X] encode failed: %v", sess.ID, replyHeader.FuncCode, encErr)
+			return encErr
+		}
+
 		replyHex := fmt.Sprintf("% X", replyData)
+		replyFrameHex := fmt.Sprintf("% X", replyFrame)
 		sess.Recorder.RecordReply(replyHeader.FuncCode, recorder.StatusSuccess, replyHex, "", "")
 
-		// 日志：发送的回复消息，带sessionID
+		// 日志：发送的回复消息，带sessionID，打印完整帧hex + 完整消息json
+		// 解码回复消息体以构建JSON
+		var replyMsg types.Message
+		if replyRegMsg, ok := proto.Registry().Create(replyHeader.FuncCode, types.DirectionReply); ok && len(replyData) > 0 {
+			_ = replyRegMsg.Decode(replyData)
+			replyMsg = replyRegMsg
+		}
+		replyJSON := buildMessageJSON(replyHeader, replyMsg)
 		logger.Infof("[%s] [SEND ↓] [0x%02X] postNo=%d charger=%d dataLen=%d",
 			sess.ID, replyHeader.FuncCode, replyHeader.PostNo, replyHeader.Charger, len(replyData))
-		logger.Infof("[%s] [SEND ↓] [0x%02X] HEX: %s", sess.ID, replyHeader.FuncCode, replyHex)
+		logger.Infof("[%s] [SEND ↓] [0x%02X] HEX: %s", sess.ID, replyHeader.FuncCode, replyFrameHex)
+		logger.Infof("[%s] [SEND ↓] [0x%02X] JSON: %s", sess.ID, replyHeader.FuncCode, replyJSON)
 
 		// 异步存档回复消息
 		go func() {
@@ -289,7 +311,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			})
 		}()
 
-		return conn.Send(replyHeader, replyData, encryptFn)
+		return conn.SendFrame(replyFrame)
 	}
 
 	ctx := &dispatcher.Context{
@@ -322,6 +344,23 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 // header 参数暂未使用，保留用于未来桩侧网关复用时根据上下文判断方向。
 func directionOf(header types.MessageHeader) types.Direction {
 	return types.DirectionUpload
+}
+
+// buildMessageJSON 构建完整消息JSON（帧头字段 + 消息体字段）
+// 输出格式：{"cmd":6,"postNo":96048851,"charger":1,"encryptFlag":1,"checkSum":103,"bodyT":{...}}
+func buildMessageJSON(header types.MessageHeader, msg types.Message) string {
+	m := map[string]interface{}{
+		"cmd":         header.FuncCode,
+		"postNo":      header.PostNo,
+		"charger":     header.Charger,
+		"encryptFlag": header.EncryptFlag,
+		"checkSum":    header.Checksum,
+	}
+	if msg != nil {
+		m["bodyT"] = msg.ToJSONMap()
+	}
+	jsonBytes, _ := json.Marshal(m)
+	return string(jsonBytes)
 }
 
 // onDisconnect 连接断开回调：关闭记录器、保存报告到数据库、移除会话
