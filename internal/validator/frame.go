@@ -65,6 +65,18 @@ func (v *FrameValidator) ValidateHeader(header types.MessageHeader) *Error {
 	return nil
 }
 
+// ValidatePostNo 验证充电桩编号合法性
+// 协议规定：充电桩编号为8位数字（10000000~99999999），枪编号在充电桩编号后追加01、02等
+func (v *FrameValidator) ValidatePostNo(postNo uint32) *Error {
+	if postNo < 10000000 || postNo > 99999999 {
+		return &Error{
+			Code:    "INVALID_POST_NO",
+			Message: fmt.Sprintf("postNo %d is not 8 digits, expected 10000000~99999999", postNo),
+		}
+	}
+	return nil
+}
+
 // ValidateMessage 验证消息字段
 func (v *FrameValidator) ValidateMessage(msg types.Message) []types.ValidationError {
 	return msg.Validate()

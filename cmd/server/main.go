@@ -160,6 +160,16 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		return
 	}
 
+	// 1.1 充电桩编号校验：协议规定为8位数字（10000000~99999999）
+	if postNoErr := frameValidator.ValidatePostNo(header.PostNo); postNoErr != nil {
+		logger.Errorf("[%s] %s", conn.ID, postNoErr.Message)
+		// 记录到会话统计（会话可能还未创建，尝试获取已有的）
+		if sess, ok := sessMgr.GetByPostNo(header.PostNo); ok && sess.Recorder != nil {
+			sess.Recorder.RecordRecv(header.FuncCode, recorder.StatusInvalidField,
+				fmt.Sprintf("% X", data), "", postNoErr.Message)
+		}
+	}
+
 	// 2. 获取或创建会话（同一桩号拒绝重复连接）
 	sess, ok := sessMgr.GetByPostNo(header.PostNo)
 	if !ok {
