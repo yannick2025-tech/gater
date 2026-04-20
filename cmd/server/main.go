@@ -190,7 +190,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		if header.EncryptFlag == 0x01 && decryptFn != nil {
 			decrypted, err := decryptFn(data)
 			if err != nil {
-				logger.Warnf("[%s] decrypt func=0x%02X failed: %v", conn.ID, header.FuncCode, err)
+				logger.Warnf("[%s] decrypt func=0x%02X failed: %v", sess.ID, header.FuncCode, err)
 				sess.Recorder.RecordRecv(header.FuncCode, recorder.StatusDecodeFail,
 					fmt.Sprintf("% X", data), "", err.Error())
 				return
@@ -205,12 +205,12 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	msgStatus := recorder.StatusSuccess
 	var decodeErr string
 	if !ok {
-		logger.Warnf("[%s] unregistered func=0x%02X dir=%v", conn.ID, header.FuncCode, dir)
+		logger.Warnf("[%s] unregistered func=0x%02X dir=%v", sess.ID, header.FuncCode, dir)
 		decodeErr = fmt.Sprintf("unregistered func=0x%02X", header.FuncCode)
 		msgStatus = recorder.StatusDecodeFail
 	} else if len(data) > 0 {
 		if err := msg.Decode(data); err != nil {
-			logger.Warnf("[%s] decode func=0x%02X failed: %v", conn.ID, header.FuncCode, err)
+			logger.Warnf("[%s] decode func=0x%02X failed: %v", sess.ID, header.FuncCode, err)
 			decodeErr = err.Error()
 			msgStatus = recorder.StatusDecodeFail
 		}
@@ -221,7 +221,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		if errs := frameValidator.ValidateMessage(msg); len(errs) > 0 {
 			msgStatus = recorder.StatusInvalidField
 			for _, e := range errs {
-				logger.Warnf("[%s] validation: field=%s code=%s msg=%s", conn.ID, e.Field, e.Code, e.Message)
+				logger.Warnf("[%s] validation: field=%s code=%s msg=%s", sess.ID, e.Field, e.Code, e.Message)
 			}
 		}
 	}
@@ -249,10 +249,15 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		}
 	}()
 
-	// 7. 日志
+	// 7. 日志（包含hex和json，带sessionID便于定位完整会话周期）
 	if msg != nil {
-		logger.Infof("[%s] recv func=0x%02X name=%s postNo=%d charger=%d status=%s",
-			conn.ID, header.FuncCode, msg.Spec().Name, header.PostNo, header.Charger, msgStatus)
+		logger.Infof("[%s] [RECV ↑] [0x%02X] %s postNo=%d charger=%d status=%s",
+			sess.ID, header.FuncCode, msg.Spec().Name, header.PostNo, header.Charger, msgStatus)
+		logger.Infof("[%s] [RECV ↑] [0x%02X] HEX: %s", sess.ID, header.FuncCode, hexData)
+		logger.Infof("[%s] [RECV ↑] [0x%02X] JSON: %s", sess.ID, header.FuncCode, jsonData)
+	} else {
+		logger.Warnf("[%s] [RECV ↑] [0x%02X] decode failed postNo=%d status=%s",
+			sess.ID, header.FuncCode, header.PostNo, msgStatus)
 	}
 
 	// 8. 分发
@@ -265,6 +270,11 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 
 		replyHex := fmt.Sprintf("% X", replyData)
 		sess.Recorder.RecordReply(replyHeader.FuncCode, recorder.StatusSuccess, replyHex, "", "")
+
+		// 日志：发送的回复消息，带sessionID
+		logger.Infof("[%s] [SEND ↓] [0x%02X] postNo=%d charger=%d dataLen=%d",
+			sess.ID, replyHeader.FuncCode, replyHeader.PostNo, replyHeader.Charger, len(replyData))
+		logger.Infof("[%s] [SEND ↓] [0x%02X] HEX: %s", sess.ID, replyHeader.FuncCode, replyHex)
 
 		// 异步存档回复消息
 		go func() {
@@ -297,7 +307,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 
 	if dp.HasHandler(header.FuncCode, dir) {
 		if err := dp.Dispatch(ctx); err != nil {
-			logger.Errorf("[%s] handle func=0x%02X error: %v", conn.ID, header.FuncCode, err)
+			logger.Errorf("[%s] handle func=0x%02X error: %v", sess.ID, header.FuncCode, err)
 		}
 	}
 
