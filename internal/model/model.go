@@ -32,6 +32,7 @@ type TestReport struct {
 	IsPass        bool    `json:"isPass"`             // 测试是否通过
 	PDFApath     string  `gorm:"size:512" json:"pdfPath,omitempty"` // PDF文件路径
 	Status        string  `gorm:"size:32;default:active" json:"status"` // active/completed/archived
+	AuthState     string  `gorm:"size:32;default:none" json:"authState"` // none/pending/authenticated (断开前的最终认证状态)
 }
 
 // TableName 表名

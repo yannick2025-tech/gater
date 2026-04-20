@@ -356,7 +356,7 @@ func (r *Router) getSessions(c *gin.Context) {
 				"sessionId":       rep.SessionID,
 				"postNo":          rep.PostNo,
 				"gunNumber":       fmt.Sprintf("%d", rep.PostNo),
-				"authState":       rep.Status,
+				"authState":       rep.AuthState,
 				"isOnline":        false,
 				"protocolName":    rep.ProtocolName,
 				"protocolVersion": rep.ProtocolVer,
@@ -472,7 +472,7 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 				}
 			}
 
-			err := report.SaveReport(summary, "XX标准协议", "v1.6.0")
+			err := report.SaveReport(summary, "XX标准协议", "v1.6.0", sess.GetAuthState().String())
 			if err != nil {
 				fmt.Printf("[disconnect] save report error for session %s: %v\n", sess.ID, err)
 			} else {

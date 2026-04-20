@@ -13,7 +13,7 @@ import (
 )
 
 // SaveReport 保存测试报告到数据库（会话结束时调用）
-func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolVer string) error {
+func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolVer string, authState string) error {
 	db := database.GetDB()
 	if db == nil {
 		return fmt.Errorf("database not initialized")
@@ -34,6 +34,7 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 		SuccessRate:   summary.SuccessRate,
 		IsPass:        summary.IsPass,
 		Status:        "completed",
+		AuthState:     authState,
 	}
 
 	if err := db.Create(report).Error; err != nil {
