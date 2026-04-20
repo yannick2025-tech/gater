@@ -129,8 +129,13 @@ func NewRouter(sessMgr *session.SessionManager, scenarioEngine *scenario.Engine)
 	}
 }
 
-// Setup 设置路由
+// Setup 设置路由（兼容旧入口，内部委托 SetupAPI）
 func (r *Router) Setup(engine *gin.Engine) {
+	r.SetupAPI(engine)
+}
+
+// SetupAPI 注册所有 /api/* 路由（绑定到 API 端口，如 9090）
+func (r *Router) SetupAPI(engine *gin.Engine) {
 	api := engine.Group("/api")
 	{
 		// 会话管理
@@ -153,6 +158,118 @@ func (r *Router) Setup(engine *gin.Engine) {
 		api.POST("/test/config", r.configDownload)
 	}
 }
+
+// serveSwaggerUI 提供 Swagger UI 页面，加载本地 openapi.yaml
+func serveSwaggerUI(c *gin.Context) {
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <title>NTS-Gater API Documentation</title>
+    <meta charset="utf-8"/>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+SwaggerUIBundle({
+    url: "/docs/openapi.yaml",
+    dom_id: '#swagger-ui',
+    presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIBundle.SwaggerStandalonePreset
+    ],
+    layout: "BaseLayout"
+})
+</script>
+</body>
+</html>`
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
+}
+
+// SetupWeb 注册静态文件服务 + SPA fallback（绑定到 Web 端口，如 8080）
+func (r *Router) SetupWeb(engine *gin.Engine) {
+	// 前端静态文件
+	engine.Static("/assets", "./web/dist/assets")
+
+	// API 文档：YAML文件 + Swagger UI
+	engine.Static("/docs", "./docs/api")
+	engine.GET("/swagger", serveSwaggerUI)
+
+	// 通用的 404 页面：所有未匹配路由都返回美观的错误页
+	engine.NoRoute(func(c *gin.Context) {
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(NotFoundHTML))
+	})
+}
+
+// NotFoundHTML 内嵌的通用404页面
+const NotFoundHTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>404 - 页面未找到 | NTS Gater</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#333}
+.container{text-align:center;padding:40px;max-width:480px}
+.status-code{font-size:72px;font-weight:800;color:#c0c4cc;margin-bottom:0;line-height:1}
+.status-text{font-size:18px;color:#909399;margin-bottom:24px}
+.desc{font-size:14px;color:#999;margin-bottom:32px;line-height:1.6}
+.btn{display:inline-block;padding:10px 24px;font-size:14px;color:#fff;text-decoration:none;border-radius:6px;transition:background .2s}
+.btn-primary{background:#409eff}
+.btn-primary:hover{background:#337ecc}
+.divider{width:40px;height:2px;background:#e4e7ed;margin:0 auto 16px;border-radius:1px}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="status-code">404</div>
+<div class="status-text">页面未找到</div>
+<div class="desc">您访问的资源不存在或已被移除</div>
+<div class="divider"></div>
+<a class="btn btn-primary" href="/">返回首页</a>
+</div>
+<script>
+// 自动重定向：如果是前端路由路径（非静态资源），尝试前端SPA处理
+if (!window.location.pathname.startsWith('/assets') &&
+    !window.location.pathname.startsWith('/docs')) {
+  // 静默跳过，让前端路由处理
+}
+</script>
+</body>
+</html>`
+
+// ApiNotFoundHTML API端口的404页面（提示文字区别于Web端口）
+const ApiNotFoundHTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>404 - 接口未找到 | NTS Gater</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#333}
+.container{text-align:center;padding:40px;max-width:480px}
+.status-code{font-size:72px;font-weight:800;color:#c0c4cc;margin-bottom:0;line-height:1}
+.status-text{font-size:18px;color:#909399;margin-bottom:24px}
+.desc{font-size:14px;color:#999;margin-bottom:32px;line-height:1.6}
+.btn{display:inline-block;padding:10px 24px;font-size:14px;color:#fff;text-decoration:none;border-radius:6px;transition:background .2s}
+.btn-primary{background:#409eff}
+.btn-primary:hover{background:#337ecc}
+.divider{width:40px;height:2px;background:#e4e7ed;margin:0 auto 16px;border-radius:1px}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="status-code">404</div>
+<div class="status-text">接口未找到</div>
+<div class="desc">您请求的 API 资源不存在或已被移除</div>
+<div class="divider"></div>
+<a class="btn btn-primary" href="/">返回首页</a>
+</div>
+</body>
+</html>`
 
 // ==================== 设备管理接口 ====================
 
@@ -702,16 +819,18 @@ func (r *Router) configDownload(c *gin.Context) {
 		return
 	}
 
-	result := sc.Result()
+		result := sc.Result()
 	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"data": gin.H{
-			"sessionId": sess.ID,
-			"status":    string(result.State),
-			"testCase":  "config_download",
-			"progress":  result.Progress,
-			"stepName":  result.StepName,
-			"stepTotal": result.StepTotal,
-		},
-	})
+			"code": 200,
+			"data": gin.H{
+				"sessionId": sess.ID,
+				"status":    string(result.State),
+				"testCase":  "config_download",
+				"progress":  result.Progress,
+				"stepName":  result.StepName,
+				"stepTotal": result.StepTotal,
+			},
+		})
 }
+
+

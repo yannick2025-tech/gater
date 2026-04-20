@@ -78,28 +78,26 @@ func main() {
 
 	// HTTP服务器
 	gin.SetMode(gin.ReleaseMode)
-	engine := gin.Default()
-	engine.Use(corsMiddleware())
 	router := api.NewRouter(sessMgr, scenarioEngine)
-	router.Setup(engine)
 
-	// API文档：YAML文件 + Swagger UI
-	engine.Static("/docs", "./docs/api")
-	engine.GET("/swagger", serveSwaggerUI)
-
-	// 前端静态文件（生产模式：服务 web/dist 目录）
-	engine.Static("/assets", "./web/dist/assets")
-	engine.NoRoute(func(c *gin.Context) {
-		// SPA fallback: 非API请求返回 index.html
-		if len(c.Request.URL.Path) >= 4 && c.Request.URL.Path[:4] == "/api" {
-			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "not found"})
-			return
-		}
-		c.File("./web/dist/index.html")
+	// Server 1: API 接口（内网端口，仅 /api/* 路由）
+	apiEngine := gin.Default()
+	router.SetupAPI(apiEngine)
+	// API端口的404：返回带样式的错误页面（与Web端口风格一致）
+	apiEngine.NoRoute(func(c *gin.Context) {
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(api.NotFoundHTML))
 	})
-	httpSrv := &http.Server{
+	apiSrv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.HTTPPort),
-		Handler: engine,
+		Handler: apiEngine,
+	}
+
+	// Server 2: Web 静态页面（对外端口，SPA + 静态资源，不含 API）
+	webEngine := gin.Default()
+	router.SetupWeb(webEngine)
+	webSrv := &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.WebPort),
+		Handler: webEngine,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,9 +108,16 @@ func main() {
 	}
 
 	go func() {
-		logger.Infof("HTTP server listening on %s", httpSrv.Addr)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Errorf("HTTP server error: %v", err)
+		logger.Infof("API server listening on %s", apiSrv.Addr)
+		if err := apiSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Errorf("API server error: %v", err)
+		}
+	}()
+
+	go func() {
+		logger.Infof("Web server listening on %s", webSrv.Addr)
+		if err := webSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Errorf("Web server error: %v", err)
 		}
 	}()
 
@@ -125,7 +130,8 @@ func main() {
 	logger.Infof("received signal %v, shutting down...", sig)
 
 	srv.Stop()
-	httpSrv.Close()
+	apiSrv.Close()
+	webSrv.Close()
 }
 
 // corsMiddleware 跨域中间件
@@ -365,30 +371,3 @@ func heartbeatCheckLoop(ctx context.Context, sessMgr *session.SessionManager,
 	}
 }
 
-// serveSwaggerUI 提供嵌入式 Swagger UI 页面，加载本地 openapi.yaml
-func serveSwaggerUI(c *gin.Context) {
-	html := `<!DOCTYPE html>
-<html>
-<head>
-    <title>NTS-Gater API Documentation</title>
-    <meta charset="utf-8"/>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
-</head>
-<body>
-<div id="swagger-ui"></div>
-<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-<script>
-SwaggerUIBundle({
-    url: "/docs/openapi.yaml",
-    dom_id: '#swagger-ui',
-    presets: [
-        SwaggerUIBundle.presets.apis,
-        SwaggerUIBundle.SwaggerUIStandalonePreset
-    ],
-    layout: "BaseLayout"
-})
-</script>
-</body>
-</html>`
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
-}

@@ -21,7 +21,8 @@ type Config struct {
 type ServerConfig struct {
 	Host            string        `yaml:"host"`
 	Port            int           `yaml:"port"`
-	HTTPPort        int           `yaml:"http_port"`
+	HTTPPort        int           `yaml:"http_port"`       // API 接口端口
+	WebPort         int           `yaml:"web_port"`         // Web 静态页面端口
 	ReadTimeout     time.Duration `yaml:"read_timeout"`
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	HeartbeatTimeout time.Duration `yaml:"heartbeat_timeout"`
@@ -102,7 +103,10 @@ func setDefaults(cfg *Config) {
 		cfg.Server.Port = 8888
 	}
 	if cfg.Server.HTTPPort == 0 {
-		cfg.Server.HTTPPort = 8080
+		cfg.Server.HTTPPort = 9090
+	}
+	if cfg.Server.WebPort == 0 {
+		cfg.Server.WebPort = 8080
 	}
 	if cfg.Server.ReadTimeout == 0 {
 		cfg.Server.ReadTimeout = 30 * time.Second
