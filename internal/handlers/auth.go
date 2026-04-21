@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -46,7 +47,7 @@ func NewAuthHandler(sessMgr *session.SessionManager, logger logging.Logger) *Aut
 }
 
 // HandleAuthRandomUpload 处理充电桩上报0x0A
-// 流程：生成13位随机数 → AES加密 → 回复给充电桩
+// 流程：生成13位随机数 → 回复给充电桩（FrameEncoder会自动加密，不要手动加密）
 func (h *AuthHandler) HandleAuthRandomUpload(ctx *dispatcher.Context) error {
 	// 生成13位随机数
 	randomBytes := make([]byte, 13)
@@ -60,25 +61,18 @@ func (h *AuthHandler) HandleAuthRandomUpload(ctx *dispatcher.Context) error {
 
 	ctx.Logger.Infof("[%s] auth: generated 13 random bytes for postNo=%d", ctx.Session.ID, ctx.PostNo)
 
-	// AES-256-CBC加密13位随机数（使用固定密钥）
-	encryptFn := ctx.Session.GetEncryptFn()
-	encrypted, err := encryptFn(randomBytes)
-	if err != nil {
-		return fmt.Errorf("encrypt random bytes: %w", err)
-	}
-
-	// 构建回复帧
+	// 构建回复帧：传入明文13字节随机数，EncryptFlag=0x01，FrameEncoder会自动加密
 	replyHeader := types.MessageHeader{
-		StartByte:  ctx.Proto.FrameConfig().StartByte,
-		Version:    ctx.Proto.Version(),
-		FuncCode:   types.FuncAuthRandom,
-		PostNo:     ctx.PostNo,
-		Charger:    ctx.Charger,
+		StartByte:   ctx.Proto.FrameConfig().StartByte,
+		Version:     ctx.Proto.Version(),
+		FuncCode:    types.FuncAuthRandom,
+		PostNo:      ctx.PostNo,
+		Charger:     ctx.Charger,
 		EncryptFlag: 0x01,
 	}
 
-	ctx.Logger.Infof("[%s] auth: reply 0x0A with encrypted random bytes (len=%d)", ctx.Session.ID, len(encrypted))
-	return ctx.Reply(replyHeader, encrypted)
+	ctx.Logger.Infof("[%s] auth: reply 0x0A with random bytes (len=%d)", ctx.Session.ID, len(randomBytes))
+	return ctx.Reply(replyHeader, randomBytes)
 }
 
 // HandleAuthDataUpload 处理充电桩上报0x0B
@@ -158,7 +152,7 @@ func (h *AuthHandler) HandleKeyUpdateUpload(ctx *dispatcher.Context) error {
 }
 
 // computeAuthHash 计算认证校验哈希
-// 算法：13位随机数倒序 + 16位固定密钥拼接为29字节 → BCD编码为58字节 → MD5 → 取前16字节 → 倒序
+// 算法：13位随机数倒序 + 16位固定密钥(hex解码)拼接为29字节 → BCD编码为58字节 → MD5 → 取前16字节 → 倒序
 func computeAuthHash(randomKey []byte, fixedKey []byte) ([]byte, error) {
 	// 1. 13位随机数倒序
 	reversed := make([]byte, 13)
@@ -166,19 +160,25 @@ func computeAuthHash(randomKey []byte, fixedKey []byte) ([]byte, error) {
 		reversed[i] = randomKey[12-i]
 	}
 
-	// 2. 拼接: 倒序随机数(13) + 固定密钥(16) = 29字节
+	// 2. 固定密钥hex解码为16字节原始数据
+	fixedKeyHex, err := hex.DecodeString(string(fixedKey))
+	if err != nil {
+		return nil, fmt.Errorf("hex decode fixed key: %w", err)
+	}
+
+	// 3. 拼接: 倒序随机数(13) + 固定密钥hex(16) = 29字节
 	combined := make([]byte, 0, 29)
 	combined = append(combined, reversed...)
-	combined = append(combined, fixedKey[:16]...)
+	combined = append(combined, fixedKeyHex...)
 
-	// 3. 当作BCD码，转换成58字节
+	// 4. 当作BCD码，转换成58字节
 	bcdBytes := bytesToBCD(combined)
 
-	// 4. MD5
+	// 5. MD5
 	hash := md5.Sum(bcdBytes)
 	hash16 := hash[:16]
 
-	// 5. 取前16字节倒序
+	// 6. 取前16字节倒序
 	result := make([]byte, 16)
 	for i := 0; i < 16; i++ {
 		result[i] = hash16[15-i]
