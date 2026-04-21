@@ -57,17 +57,18 @@ func (s KeyState) String() string {
 
 // Session 充电桩会话
 type Session struct {
-	ID            string
-	PostNo        uint32
-	ConnID        string
-	AuthState     AuthState
-	KeyState      KeyState
-	FixedCipher   *crypto.AESCBCCipher // 固定密钥加密器
-	SessionCipher *crypto.AESCBCCipher // 会话密钥加密器
-	RandomKey     []byte               // 13位随机密钥（0x0A下发）
-	Recorder      *recorder.SessionRecorder // 消息记录器
-	CreatedAt     time.Time
-	LastActive    time.Time
+	ID                  string
+	PostNo              uint32
+	ConnID              string
+	AuthState           AuthState
+	KeyState            KeyState
+	FixedCipher         *crypto.AESCBCCipher // 固定密钥加密器
+	SessionCipher       *crypto.AESCBCCipher // 会话密钥加密器
+	RandomKey           []byte               // 13位随机密钥（0x0A下发）
+	PendingSessionKey   string               // 待生效的会话密钥（0x21下发后等桩回复成功再切换）
+	Recorder            *recorder.SessionRecorder // 消息记录器
+	CreatedAt           time.Time
+	LastActive          time.Time
 
 	mu sync.RWMutex
 }
@@ -125,6 +126,20 @@ func (s *Session) SetKeyState(state KeyState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.KeyState = state
+}
+
+// SetPendingSessionKey 设置待生效的会话密钥（0x21下发后，等充电桩回复成功再切换）
+func (s *Session) SetPendingSessionKey(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PendingSessionKey = key
+}
+
+// GetPendingSessionKey 获取待生效的会话密钥
+func (s *Session) GetPendingSessionKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.PendingSessionKey
 }
 
 // UpdateActive 更新最后活跃时间

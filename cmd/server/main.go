@@ -331,6 +331,56 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		Logger:   logger,
 		Reply:    replyFn,
 		Proto:    proto,
+		SendDownload: func(dlMsg types.Message) error {
+			// 主动下发消息到充电桩（如0x21密钥更新）
+			dlData, encErr := dlMsg.Encode()
+			if encErr != nil {
+				return fmt.Errorf("encode download message failed: %w", encErr)
+			}
+
+			spec := dlMsg.Spec()
+			dlHeader := types.MessageHeader{
+				StartByte:   proto.FrameConfig().StartByte,
+				Version:     proto.Version(),
+				FuncCode:    spec.FuncCode,
+				PostNo:      header.PostNo,
+				Charger:     header.Charger,
+				EncryptFlag: 0x00,
+			}
+			if spec.Encrypt {
+				dlHeader.EncryptFlag = 0x01
+			}
+
+			encryptFn := sess.GetEncryptFn()
+			dlFrame, encErr := conn.Encoder.Encode(dlHeader, dlData, encryptFn)
+			if encErr != nil {
+				return fmt.Errorf("encode download frame failed: %w", encErr)
+			}
+
+			// 更新header中的Checksum和DataLength
+			if len(dlFrame) >= 12 {
+				dlHeader.Checksum = dlFrame[8]
+				dlHeader.DataLength = uint16(dlFrame[10]) | uint16(dlFrame[11])<<8
+			}
+
+			// 日志
+			dlHex := fmt.Sprintf("% X", dlData)
+			dlFrameHex := fmt.Sprintf("% X", dlFrame)
+			sess.Recorder.RecordReply(dlHeader.FuncCode, recorder.StatusSuccess, dlHex, "", "")
+
+			var dlReplyMsg types.Message
+			if dlRegMsg, ok := proto.Registry().Create(dlHeader.FuncCode, types.DirectionDownload); ok && len(dlData) > 0 {
+				_ = dlRegMsg.Decode(dlData)
+				dlReplyMsg = dlRegMsg
+			}
+			dlJSON := buildMessageJSON(dlHeader, dlReplyMsg)
+			logger.Infof("[%s] [SEND ↓] [0x%02X] postNo=%d charger=%d dataLen=%d",
+				sess.ID, dlHeader.FuncCode, dlHeader.PostNo, dlHeader.Charger, len(dlData))
+			logger.Infof("[%s] [SEND ↓] [0x%02X] HEX: %s", sess.ID, dlHeader.FuncCode, dlFrameHex)
+			logger.Infof("[%s] [SEND ↓] [0x%02X] JSON: %s", sess.ID, dlHeader.FuncCode, dlJSON)
+
+			return conn.SendFrame(dlFrame)
+		},
 	}
 
 	if dp.HasHandler(header.FuncCode, dir) {

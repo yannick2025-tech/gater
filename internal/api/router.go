@@ -2,7 +2,10 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -137,6 +140,30 @@ func (r *Router) Setup(engine *gin.Engine) {
 // SetupAPI 注册所有 /api/* 路由（绑定到 API 端口，如 9090）
 func (r *Router) SetupAPI(engine *gin.Engine) {
 	api := engine.Group("/api")
+
+	// POST请求参数日志中间件：打印请求路径和body参数，方便排查问题
+	api.Use(func(c *gin.Context) {
+		if c.Request.Method == "POST" {
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err == nil && len(bodyBytes) > 0 {
+				// 还原body供后续handler读取
+				c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(bodyBytes), c.Request.Body))
+				// 美化JSON输出
+				var prettyJSON map[string]interface{}
+				if json.Unmarshal(bodyBytes, &prettyJSON) == nil {
+					if formatted, err := json.MarshalIndent(prettyJSON, "", "  "); err == nil {
+						fmt.Printf("[API] %s %s\n%s\n", c.Request.Method, c.Request.URL.Path, string(formatted))
+					} else {
+						fmt.Printf("[API] %s %s\n%s\n", c.Request.Method, c.Request.URL.Path, string(bodyBytes))
+					}
+				} else {
+					fmt.Printf("[API] %s %s\n%s\n", c.Request.Method, c.Request.URL.Path, string(bodyBytes))
+				}
+			}
+		}
+		c.Next()
+	})
+
 	{
 		// 会话管理
 		api.GET("/sessions", r.getSessions)

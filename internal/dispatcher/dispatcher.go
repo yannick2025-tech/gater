@@ -24,18 +24,22 @@ func (f HandlerFunc) Handle(ctx *Context) error {
 // ReplyFunc 回复函数类型
 type ReplyFunc func(header types.MessageHeader, data []byte) error
 
+// SendDownloadFunc 主动下发消息函数类型（用于平台主动向充电桩发送消息，如0x21密钥更新）
+type SendDownloadFunc func(msg types.Message) error
+
 // Context 分发上下文
 type Context struct {
-	PostNo   uint32
-	Charger  byte
-	FuncCode byte
-	Dir      types.Direction
-	Data     []byte       // 已解密的消息体
-	Message  types.Message // 已解码的消息
-	Session  *session.Session
-	Logger   logging.Logger
-	Reply    ReplyFunc    // 发送回复
-	Proto    types.Protocol
+	PostNo       uint32
+	Charger      byte
+	FuncCode     byte
+	Dir          types.Direction
+	Data         []byte            // 已解密的消息体
+	Message      types.Message     // 已解码的消息
+	Session      *session.Session
+	Logger       logging.Logger
+	Reply        ReplyFunc         // 发送回复
+	SendDownload SendDownloadFunc  // 主动下发消息（如0x21密钥更新）
+	Proto        types.Protocol
 }
 
 // ReplyMessage 便捷回复：编码消息并发送

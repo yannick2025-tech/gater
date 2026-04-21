@@ -77,7 +77,7 @@ func (h *AuthHandler) HandleAuthRandomUpload(ctx *dispatcher.Context) error {
 }
 
 // HandleAuthDataUpload 处理充电桩上报0x0B
-// 流程：验证MD5密钥校验算法 → 更新认证状态 → 回复结果+当前时间
+// 流程：验证MD5密钥校验算法 → 更新认证状态 → 回复结果+当前时间 → 认证成功则下发0x21密钥更新
 func (h *AuthHandler) HandleAuthDataUpload(ctx *dispatcher.Context) error {
 	authMsg, ok := ctx.Message.(*msg.Auth0BUpload)
 	if !ok {
@@ -134,7 +134,64 @@ func (h *AuthHandler) HandleAuthDataUpload(ctx *dispatcher.Context) error {
 		EncryptFlag: 0x01,
 	}
 
-	return ctx.Reply(replyHeader, replyData)
+	if err := ctx.Reply(replyHeader, replyData); err != nil {
+		return err
+	}
+
+	// 认证成功后，主动下发0x21密钥更新
+	if authSuccess && ctx.SendDownload != nil {
+		go h.sendKeyUpdate(ctx)
+	}
+
+	return nil
+}
+
+// sendKeyUpdate 下发0x21密钥更新
+// 密钥生成流程：13字节随机数 → 固定密钥AES加密 → 16字节密文 → hex编码32字符ASCII（即新密钥）→ BCD16 → 倒序 → 下发
+func (h *AuthHandler) sendKeyUpdate(ctx *dispatcher.Context) {
+	// 1. 生成13字节随机数
+	randomBytes := make([]byte, 13)
+	if _, err := rand.Read(randomBytes); err != nil {
+		ctx.Logger.Errorf("[%s] auth: generate random bytes for 0x21 failed: %v", ctx.Session.ID, err)
+		return
+	}
+
+	// 2. 用固定密钥AES-256-CBC-PKCS7加密13字节随机数 → 16字节密文
+	encryptedKey, err := ctx.Session.FixedCipher.Encrypt(randomBytes)
+	if err != nil {
+		ctx.Logger.Errorf("[%s] auth: encrypt random bytes for 0x21 failed: %v", ctx.Session.ID, err)
+		return
+	}
+
+	// 3. 16字节密文hex编码 → 32字符大写ASCII字符串，这就是新密钥
+	//    后续所有消息用此32字符作为AES-256的KEY，IV取后16字符
+	newKeyStr := strings.ToUpper(hex.EncodeToString(encryptedKey))
+
+	// 4. 32字符hex字符串 → BCD16编码 → 16字节 → 倒序 → 下发给充电桩
+	//    桩收到后：倒序 → BCD16转32字符 → 得到新密钥
+	newKeyBCD := reverseBytes(hexStrToBCD16(newKeyStr))
+
+	// 5. 原始密钥：协议规定固定使用0xFF填充16字节
+	originalKey := make([]byte, 16)
+	for i := range originalKey {
+		originalKey[i] = 0xFF
+	}
+
+	// 6. 保存待生效的会话密钥（0x21回复成功后切换）
+	ctx.Session.SetPendingSessionKey(newKeyStr)
+
+	ctx.Logger.Infof("[%s] auth: sending 0x21 key update for postNo=%d, newKey=%s", ctx.Session.ID, ctx.PostNo, newKeyStr)
+
+	// 7. 构建并发送0x21密钥更新消息
+	keyUpdateMsg := &msg.KeyUpdateDownload{
+		OriginalKey: originalKey,
+		NewAesKey:   newKeyBCD,
+	}
+	if err := ctx.SendDownload(keyUpdateMsg); err != nil {
+		ctx.Logger.Errorf("[%s] auth: send 0x21 key update failed: %v", ctx.Session.ID, err)
+		return
+	}
+	ctx.Logger.Infof("[%s] auth: 0x21 key update sent for postNo=%d", ctx.Session.ID, ctx.PostNo)
 }
 
 // HandleKeyUpdateUpload 处理充电桩回复0x21（密钥更新结果）
@@ -145,7 +202,18 @@ func (h *AuthHandler) HandleKeyUpdateUpload(ctx *dispatcher.Context) error {
 	}
 
 	if keyUpdateMsg.SecretUpdateStatus == 0 {
-		ctx.Logger.Infof("[%s] key update SUCCESS for postNo=%d", ctx.Session.ID, ctx.PostNo)
+		// 密钥更新成功：切换到会话密钥
+		pendingKey := ctx.Session.GetPendingSessionKey()
+		if pendingKey != "" {
+			if err := h.sessMgr.SetSessionKey(ctx.Session.ID, pendingKey); err != nil {
+				ctx.Logger.Errorf("[%s] key update SUCCESS but failed to apply session key: %v", ctx.Session.ID, err)
+			} else {
+				ctx.Session.SetPendingSessionKey("")
+				ctx.Logger.Infof("[%s] key update SUCCESS for postNo=%d, switched to session key", ctx.Session.ID, ctx.PostNo)
+			}
+		} else {
+			ctx.Logger.Infof("[%s] key update SUCCESS for postNo=%d (no pending key)", ctx.Session.ID, ctx.PostNo)
+		}
 	} else {
 		ctx.Logger.Warnf("[%s] key update FAILED for postNo=%d, status=%d", ctx.Session.ID, ctx.PostNo, keyUpdateMsg.SecretUpdateStatus)
 	}
@@ -273,4 +341,37 @@ func Uint32ToBytes(v uint32) []byte {
 // CalcChecksumForReply 计算数据域校验和
 func CalcChecksumForReply(data []byte) byte {
 	return codec.CalcChecksum(data)
+}
+
+// hexStrToBCD16 将32字符hex字符串编码为16字节BCD
+// 协议中0x21密钥更新的"新密钥"字段：32字符hex → 每2字符合并为1字节 → 16字节
+// 例如: "35727013372387479964400522855388" → [0x35, 0x72, 0x70, 0x13, ...]
+func hexStrToBCD16(hexStr string) []byte {
+	result := make([]byte, 16)
+	for i := 0; i < 16 && i*2+1 < len(hexStr); i++ {
+		b := hexStr[i*2 : i*2+2]
+		var v byte
+		for _, c := range b {
+			v <<= 4
+			if c >= '0' && c <= '9' {
+				v |= byte(c - '0')
+			} else if c >= 'A' && c <= 'F' {
+				v |= byte(c - 'A' + 10)
+			} else if c >= 'a' && c <= 'f' {
+				v |= byte(c - 'a' + 10)
+			}
+		}
+		result[i] = v
+	}
+	return result
+}
+
+// reverseBytes 字节数组倒序
+func reverseBytes(data []byte) []byte {
+	n := len(data)
+	result := make([]byte, n)
+	for i := 0; i < n; i++ {
+		result[i] = data[n-1-i]
+	}
+	return result
 }

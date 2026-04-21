@@ -21,6 +21,8 @@ func (p *StandardProtocol) registerMessages() {
 	// 0x21 秘钥更新
 	r.Register(types.FuncKeyUpdate, types.DirectionDownload, func() types.Message { return &msg.KeyUpdateDownload{} })
 	r.Register(types.FuncKeyUpdate, types.DirectionReply, func() types.Message { return &msg.KeyUpdateReply{} })
+	// 0x21 充电桩回复也注册为Upload方向（directionOf固定返回Upload）
+	r.Register(types.FuncKeyUpdate, types.DirectionUpload, func() types.Message { return &msg.KeyUpdateReply{} })
 
 	// 0x23 对时
 	r.Register(types.FuncTimeSync, types.DirectionUpload, func() types.Message { return &msg.TimeSyncUpload{} })
