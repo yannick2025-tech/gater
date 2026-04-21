@@ -112,9 +112,12 @@ func (m *Auth0BUpload) Decode(data []byte) error {
 	if err != nil {
 		return err
 	}
-	m.FaultCodeVersion, off, err = ReadUint16LE(data, off)
-	if err != nil {
-		return err
+	// FaultCodeVersion 为可选字段，部分充电桩不上报
+	if off+2 <= len(data) {
+		m.FaultCodeVersion, off, err = ReadUint16LE(data, off)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

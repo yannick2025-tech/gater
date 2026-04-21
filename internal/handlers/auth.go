@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/yannick2025-tech/nts-gater/internal/dispatcher"
@@ -187,15 +188,11 @@ func computeAuthHash(randomKey []byte, fixedKey []byte) ([]byte, error) {
 	return result, nil
 }
 
-// bytesToBCD 将字节数组作为BCD码转换为双倍长度的字节数组
-// 每个字节拆成两个BCD数字
+// bytesToBCD 将字节数组转成BCD码（即hex编码为大写ASCII字符串）
+// 协议中"转成BCD码"的实际含义：每字节→2个hex字符→大写ASCII字节
+// 例如: [0x4A, 0x43] → "4A43" → [0x34, 0x41, 0x34, 0x33]
 func bytesToBCD(data []byte) []byte {
-	result := make([]byte, len(data)*2)
-	for i, b := range data {
-		result[i*2] = (b >> 4) & 0x0F
-		result[i*2+1] = b & 0x0F
-	}
-	return result
+	return []byte(strings.ToUpper(hex.EncodeToString(data)))
 }
 
 // ==================== 基础处理器 ====================

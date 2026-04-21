@@ -281,6 +281,12 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			return encErr
 		}
 
+		// 更新replyHeader中的Checksum和DataLength为编码后的实际值（Encode是值拷贝不会更新原header）
+		if len(replyFrame) >= 12 {
+			replyHeader.Checksum = replyFrame[8]
+			replyHeader.DataLength = uint16(replyFrame[10]) | uint16(replyFrame[11])<<8
+		}
+
 		replyHex := fmt.Sprintf("% X", replyData)
 		replyFrameHex := fmt.Sprintf("% X", replyFrame)
 		sess.Recorder.RecordReply(replyHeader.FuncCode, recorder.StatusSuccess, replyHex, "", "")
