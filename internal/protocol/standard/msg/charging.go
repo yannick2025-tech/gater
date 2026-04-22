@@ -76,18 +76,18 @@ func (m *PlatformStartDownload) Decode(data []byte) error {
 }
 
 func (m *PlatformStartDownload) Encode() ([]byte, error) {
+	// 充电桩始终期望51字节：启动类型(1) + 身份鉴权编码(50)
+	// 无VIN码时AuthenticationNumber用0x00填充（协议要求）
+	buf := make([]byte, 1+50) // 默认全0
+	off := 0
+	off = WriteByte(buf, off, m.StartupType)
+	// 有VIN码时覆盖0x00填充区域
 	if m.AuthenticationNumber != "" {
-		// 有VIN码：启动类型(1) + VIN码(50)
-		buf := make([]byte, 1+50)
-		off := 0
-		off = WriteByte(buf, off, m.StartupType)
 		off = WriteASCII(buf, off, m.AuthenticationNumber, 50)
-		return buf[:off], nil
+	} else {
+		off += 50 // 保持0x00填充
 	}
-	// 无VIN码：仅下发启动类型(1字节)
-	buf := make([]byte, 1)
-	buf[0] = m.StartupType
-	return buf, nil
+	return buf[:off], nil
 }
 
 func (m *PlatformStartDownload) Validate() []types.ValidationError {
@@ -218,7 +218,12 @@ func (m *ChargerStartReply) Encode() ([]byte, error) {
 	off = WriteUint32LE(buf, off, uint32(m.LimitChargingCharges*100))
 	off = WriteByte(buf, off, m.LimitSOC)
 	off = WriteByte(buf, off, m.ErrorCode)
-	off = WriteASCII(buf, off, m.AuthenticationNumber, 50)
+	// AuthenticationNumber[50]: 有值时写入，无值时保持0x00填充
+	if m.AuthenticationNumber != "" {
+		off = WriteASCII(buf, off, m.AuthenticationNumber, 50)
+	} else {
+		off += 50 // 保持0x00填充
+	}
 	off = WriteByte(buf, off, m.TheScreenDisplayModeNumber)
 	off = WriteByte(buf, off, m.FeeNum)
 	for _, fi := range m.ListFee {

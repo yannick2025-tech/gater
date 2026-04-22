@@ -2,6 +2,7 @@
 package scenario
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
@@ -224,6 +225,13 @@ func (e *Engine) createSendFn(sess *session.Session, conn *server.Connection) Se
 		if spec.Encrypt {
 			header.EncryptFlag = 0x01
 		}
+
+		// 发送前先打印日志（不等回复，方便定位问题）
+		e.logger.Infof("[%s] [GATER→Post] [0x%02X] postNo=%d charger=%d dataLen=%d",
+			sess.ID, spec.FuncCode, sess.PostNo, header.Charger, len(data))
+		e.logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: % X", sess.ID, spec.FuncCode, data)
+		msgJSON, _ := json.Marshal(msg.ToJSONMap())
+		e.logger.Infof("[%s] [GATER→Post] [0x%02X] JSON: %s", sess.ID, spec.FuncCode, string(msgJSON))
 
 		encryptFn := sess.GetEncryptFn()
 

@@ -30,12 +30,32 @@ func (m *SFTPUpgradeDownload) Decode(data []byte) error {
 }
 
 func (m *SFTPUpgradeDownload) Encode() ([]byte, error) {
-	buf := make([]byte, 1+1+1+2+100+2+20+20+120+2)
+	buf := make([]byte, 1+1+1+2+100+2+20+20+120+2) // 默认全0x00填充
 	off := 0; off = WriteByte(buf, off, m.Seq); off = WriteByte(buf, off, m.UpgradeType)
 	off = WriteByte(buf, off, m.PackageType); off = WriteUint16LE(buf, off, m.Version)
-	off = WriteASCII(buf, off, m.Address, 100); off = WriteUint16LE(buf, off, m.Port)
-	off = WriteASCII(buf, off, m.UserName, 20); off = WriteASCII(buf, off, m.Password, 20)
-	off = WriteASCII(buf, off, m.FilePath, 120); off = WriteUint16LE(buf, off, m.CrcCode)
+	// ASCII字段：有值时写入覆盖0x00填充，无值时保持0x00
+	if m.Address != "" {
+		off = WriteASCII(buf, off, m.Address, 100)
+	} else {
+		off += 100
+	}
+	off = WriteUint16LE(buf, off, m.Port)
+	if m.UserName != "" {
+		off = WriteASCII(buf, off, m.UserName, 20)
+	} else {
+		off += 20
+	}
+	if m.Password != "" {
+		off = WriteASCII(buf, off, m.Password, 20)
+	} else {
+		off += 20
+	}
+	if m.FilePath != "" {
+		off = WriteASCII(buf, off, m.FilePath, 120)
+	} else {
+		off += 120
+	}
+	off = WriteUint16LE(buf, off, m.CrcCode)
 	return buf[:off], nil
 }
 

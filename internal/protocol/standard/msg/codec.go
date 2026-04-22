@@ -44,7 +44,7 @@ func ReadBCD(data []byte, offset, length int) (string, int, error) {
 	return result, offset + length, nil
 }
 
-// ReadASCII 读取ASCII字符串，去除右侧空格和0填充
+// ReadASCII 读取ASCII字符串，去除右侧和左侧的空格及0填充
 func ReadASCII(data []byte, offset, length int) (string, int, error) {
 	if offset+length > len(data) {
 		return "", offset, fmt.Errorf("insufficient data for ASCII at offset %d", offset)
@@ -53,6 +53,10 @@ func ReadASCII(data []byte, offset, length int) (string, int, error) {
 	// 去除右侧空格和0填充
 	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == 0) {
 		s = s[:len(s)-1]
+	}
+	// 去除左侧0x00填充（部分充电桩在有效数据前填充0x00，如configVersion）
+	for len(s) > 0 && (s[0] == 0) {
+		s = s[1:]
 	}
 	return s, offset + length, nil
 }

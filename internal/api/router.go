@@ -18,6 +18,7 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 	"github.com/yannick2025-tech/nts-gater/internal/scenario"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
+	logging "github.com/yannick2025-tech/gwc-logging"
 )
 
 // DeviceConnectionRegistry 维护Web端发起的设备连接状态。
@@ -121,14 +122,16 @@ type Router struct {
 	sessMgr        *session.SessionManager
 	scenarioEngine *scenario.Engine
 	connRegistry   *DeviceConnectionRegistry
+	logger         logging.Logger
 }
 
 // NewRouter 创建路由
-func NewRouter(sessMgr *session.SessionManager, scenarioEngine *scenario.Engine) *Router {
+func NewRouter(sessMgr *session.SessionManager, scenarioEngine *scenario.Engine, logger logging.Logger) *Router {
 	return &Router{
 		sessMgr:        sessMgr,
 		scenarioEngine: scenarioEngine,
 		connRegistry:   NewDeviceConnectionRegistry(),
+		logger:         logger,
 	}
 }
 
@@ -142,7 +145,7 @@ func (r *Router) SetupAPI(engine *gin.Engine) {
 	api := engine.Group("/api")
 
 	// Web↔Gater 接口日志中间件：记录所有请求参数和响应，方便排查问题
-	api.Use(apiLoggingMiddleware())
+	api.Use(r.apiLoggingMiddleware())
 
 	{
 		// 会话管理
@@ -844,7 +847,8 @@ func (r *Router) configDownload(c *gin.Context) {
 // - GET请求：记录URL查询参数
 // - POST请求：记录请求Body（JSON格式化）
 // - 所有请求：记录响应状态码和响应Body
-func apiLoggingMiddleware() gin.HandlerFunc {
+// - 使用结构化日志写入gater.log，标记 [GATER→WEB] / [WEB→GATER]
+func (r *Router) apiLoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
 		path := c.Request.URL.Path
@@ -854,9 +858,9 @@ func apiLoggingMiddleware() gin.HandlerFunc {
 		var reqLog string
 		if method == "GET" {
 			if query != "" {
-				reqLog = fmt.Sprintf("[WEB→GATER] %s %s?%s", method, path, query)
+				reqLog = "[WEB→GATER] " + method + " " + path + "?" + query
 			} else {
-				reqLog = fmt.Sprintf("[WEB→GATER] %s %s", method, path)
+				reqLog = "[WEB→GATER] " + method + " " + path
 			}
 		} else if method == "POST" || method == "PUT" {
 			bodyBytes, err := io.ReadAll(c.Request.Body)
@@ -867,20 +871,20 @@ func apiLoggingMiddleware() gin.HandlerFunc {
 				var prettyJSON map[string]interface{}
 				if json.Unmarshal(bodyBytes, &prettyJSON) == nil {
 					if formatted, fmtErr := json.MarshalIndent(prettyJSON, "", "  "); fmtErr == nil {
-						reqLog = fmt.Sprintf("[WEB→GATER] %s %s\n%s", method, path, string(formatted))
+						reqLog = "[WEB→GATER] " + method + " " + path + "\n" + string(formatted)
 					} else {
-						reqLog = fmt.Sprintf("[WEB→GATER] %s %s\n%s", method, path, string(bodyBytes))
+						reqLog = "[WEB→GATER] " + method + " " + path + "\n" + string(bodyBytes)
 					}
 				} else {
-					reqLog = fmt.Sprintf("[WEB→GATER] %s %s\n%s", method, path, string(bodyBytes))
+					reqLog = "[WEB→GATER] " + method + " " + path + "\n" + string(bodyBytes)
 				}
 			} else {
-				reqLog = fmt.Sprintf("[WEB→GATER] %s %s", method, path)
+				reqLog = "[WEB→GATER] " + method + " " + path
 			}
 		} else {
-			reqLog = fmt.Sprintf("[WEB→GATER] %s %s", method, path)
+			reqLog = "[WEB→GATER] " + method + " " + path
 		}
-		fmt.Println(reqLog)
+		r.logger.Info(reqLog)
 
 		// 捕获响应
 		w := &responseBodyWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
@@ -895,15 +899,15 @@ func apiLoggingMiddleware() gin.HandlerFunc {
 			var prettyResp map[string]interface{}
 			if json.Unmarshal([]byte(respBody), &prettyResp) == nil {
 				if formatted, fmtErr := json.MarshalIndent(prettyResp, "", "  "); fmtErr == nil {
-					fmt.Printf("[GATER→WEB] %s %s %d\n%s\n", method, path, statusCode, string(formatted))
+					r.logger.Infof("[GATER→WEB] %s %s %d\n%s", method, path, statusCode, string(formatted))
 				} else {
-					fmt.Printf("[GATER→WEB] %s %s %d\n%s\n", method, path, statusCode, respBody)
+					r.logger.Infof("[GATER→WEB] %s %s %d\n%s", method, path, statusCode, respBody)
 				}
 			} else {
-				fmt.Printf("[GATER→WEB] %s %s %d\n%s\n", method, path, statusCode, respBody)
+				r.logger.Infof("[GATER→WEB] %s %s %d\n%s", method, path, statusCode, respBody)
 			}
 		} else {
-			fmt.Printf("[GATER→WEB] %s %s %d\n", method, path, statusCode)
+			r.logger.Infof("[GATER→WEB] %s %s %d", method, path, statusCode)
 		}
 	}
 }

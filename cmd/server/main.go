@@ -79,7 +79,7 @@ func main() {
 
 	// HTTP服务器
 	gin.SetMode(gin.ReleaseMode)
-	router := api.NewRouter(sessMgr, scenarioEngine)
+	router := api.NewRouter(sessMgr, scenarioEngine, logger)
 
 	// Server 1: API 接口（内网端口，仅 /api/* 路由）
 	apiEngine := gin.Default()
@@ -253,14 +253,14 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	// 构建完整消息JSON：帧头字段 + 消息体字段
 	msgJSON := buildMessageJSON(header, msg)
 	if msg != nil {
-		logger.Infof("[%s] [RECV ↑] [0x%02X] %s postNo=%d charger=%d status=%s",
+		logger.Infof("[%s] [Post→GATER] [0x%02X] %s postNo=%d charger=%d status=%s",
 			sess.ID, header.FuncCode, msg.Spec().Name, header.PostNo, header.Charger, msgStatus)
-		logger.Infof("[%s] [RECV ↑] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
-		logger.Infof("[%s] [RECV ↑] [0x%02X] JSON: %s", sess.ID, header.FuncCode, msgJSON)
+		logger.Infof("[%s] [Post→GATER] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
+		logger.Infof("[%s] [Post→GATER] [0x%02X] JSON: %s", sess.ID, header.FuncCode, msgJSON)
 	} else {
-		logger.Warnf("[%s] [RECV ↑] [0x%02X] decode failed postNo=%d status=%s",
+		logger.Warnf("[%s] [Post→GATER] [0x%02X] decode failed postNo=%d status=%s",
 			sess.ID, header.FuncCode, header.PostNo, msgStatus)
-		logger.Infof("[%s] [RECV ↑] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
+		logger.Infof("[%s] [Post→GATER] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
 	}
 
 	// 8. 分发
@@ -274,7 +274,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		// 编码完整帧（用于日志打印完整hex）
 		replyFrame, encErr := conn.Encoder.Encode(replyHeader, replyData, encryptFn)
 		if encErr != nil {
-			logger.Errorf("[%s] [SEND ↓] [0x%02X] encode failed: %v", sess.ID, replyHeader.FuncCode, encErr)
+			logger.Errorf("[%s] [GATER→Post] [0x%02X] encode failed: %v", sess.ID, replyHeader.FuncCode, encErr)
 			return encErr
 		}
 
@@ -296,10 +296,10 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			replyMsg = replyRegMsg
 		}
 		replyJSON := buildMessageJSON(replyHeader, replyMsg)
-		logger.Infof("[%s] [SEND ↓] [0x%02X] postNo=%d charger=%d dataLen=%d",
+		logger.Infof("[%s] [GATER→Post] [0x%02X] postNo=%d charger=%d dataLen=%d",
 			sess.ID, replyHeader.FuncCode, replyHeader.PostNo, replyHeader.Charger, len(replyData))
-		logger.Infof("[%s] [SEND ↓] [0x%02X] HEX: %s", sess.ID, replyHeader.FuncCode, replyFrameHex)
-		logger.Infof("[%s] [SEND ↓] [0x%02X] JSON: %s", sess.ID, replyHeader.FuncCode, replyJSON)
+		logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: %s", sess.ID, replyHeader.FuncCode, replyFrameHex)
+		logger.Infof("[%s] [GATER→Post] [0x%02X] JSON: %s", sess.ID, replyHeader.FuncCode, replyJSON)
 
 		// 异步存档回复消息
 		go func() {
@@ -377,10 +377,10 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 				dlReplyMsg = dlRegMsg
 			}
 			dlJSON := buildMessageJSON(dlHeader, dlReplyMsg)
-			logger.Infof("[%s] [SEND ↓] [0x%02X] postNo=%d charger=%d dataLen=%d",
+			logger.Infof("[%s] [GATER→Post] [0x%02X] postNo=%d charger=%d dataLen=%d",
 				sess.ID, dlHeader.FuncCode, dlHeader.PostNo, dlHeader.Charger, len(dlData))
-			logger.Infof("[%s] [SEND ↓] [0x%02X] HEX: %s", sess.ID, dlHeader.FuncCode, dlFrameHex)
-			logger.Infof("[%s] [SEND ↓] [0x%02X] JSON: %s", sess.ID, dlHeader.FuncCode, dlJSON)
+			logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: %s", sess.ID, dlHeader.FuncCode, dlFrameHex)
+			logger.Infof("[%s] [GATER→Post] [0x%02X] JSON: %s", sess.ID, dlHeader.FuncCode, dlJSON)
 
 			return conn.SendFrame(dlFrame)
 		},

@@ -21,17 +21,20 @@ func (m *HeartbeatUpload) Spec() types.MessageSpec {
 }
 
 func (m *HeartbeatUpload) Decode(data []byte) error {
-	if len(data) < 4 {
-		return errInsufficientData(4, len(data))
+	if len(data) < 3 {
+		return errInsufficientData(3, len(data))
 	}
 	off := 0
 	m.Status, off, _ = ReadByte(data, off)
 	m.ErrorCode, off, _ = ReadUint16LE(data, off)
-	sq, _, _ := ReadByte(data, off)
-	if sq == 0xFF {
-		m.SignalQuality = nil
-	} else {
-		m.SignalQuality = &sq
+	// SignalQuality可选：部分充电桩不上报此字段
+	if off < len(data) {
+		sq, _, _ := ReadByte(data, off)
+		if sq == 0xFF {
+			m.SignalQuality = nil
+		} else {
+			m.SignalQuality = &sq
+		}
 	}
 	return nil
 }
