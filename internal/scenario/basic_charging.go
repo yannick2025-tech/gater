@@ -63,6 +63,7 @@ type BasicChargingScenario struct {
 	chargingStart    time.Time     // 充电开始时间
 	maxChargingData  int           // 最多接收0x06次数
 	chargingDataCnt  int           // 已接收0x06次数
+	vinCode          string        // VIN码（可选，前端传入）
 }
 
 // NewBasicChargingScenario 创建基础充电测试场景
@@ -80,6 +81,17 @@ func NewBasicChargingScenario(sessionID string, sess *session.Session, proto typ
 
 // Name 场景名称
 func (s *BasicChargingScenario) Name() string { return "basic_charging" }
+
+// SetParams 设置场景参数（从前端传入）
+func (s *BasicChargingScenario) SetParams(params map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v, ok := params["vinCode"]; ok {
+		if vin, ok := v.(string); ok {
+			s.vinCode = vin
+		}
+	}
+}
 
 // State 获取当前状态
 func (s *BasicChargingScenario) State() ScenarioState {
@@ -219,8 +231,8 @@ func (s *BasicChargingScenario) executeStep() {
 	// 步骤0：平台下发0x03启动充电
 	if step.FuncCode == types.FuncPlatformStart && step.Direction == types.DirectionDownload {
 		startMsg := &msg.PlatformStartDownload{
-			StartupType:          6, // 远程鉴权-命令
-			AuthenticationNumber: fmt.Sprintf("SCENARIO-%s-%d", s.sessionID, time.Now().Unix()),
+			StartupType:          1, // 1-远程鉴权-扫码（APP/微信小程序启动）
+			AuthenticationNumber: s.vinCode,
 		}
 		if err := sendFn(startMsg); err != nil {
 			s.fail(fmt.Sprintf("send 0x03 failed: %v", err))

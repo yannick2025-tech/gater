@@ -58,7 +58,7 @@ var StartupTypes = map[byte]string{
 // PlatformStartDownload 平台下发启动充电
 type PlatformStartDownload struct {
 	StartupType          byte   `json:"startupType"`
-	AuthenticationNumber string `json:"authenticationNumber"` // ASCII[50]
+	AuthenticationNumber string `json:"authenticationNumber"` // ASCII[50] 可选，VIN码
 }
 
 func (m *PlatformStartDownload) Spec() types.MessageSpec {
@@ -68,16 +68,26 @@ func (m *PlatformStartDownload) Spec() types.MessageSpec {
 func (m *PlatformStartDownload) Decode(data []byte) error {
 	off := 0
 	m.StartupType, off, _ = ReadByte(data, off)
-	m.AuthenticationNumber, off, _ = ReadASCII(data, off, 50)
+	// AuthenticationNumber 可选：仅当剩余数据>=50字节时读取
+	if off+50 <= len(data) {
+		m.AuthenticationNumber, off, _ = ReadASCII(data, off, 50)
+	}
 	return nil
 }
 
 func (m *PlatformStartDownload) Encode() ([]byte, error) {
-	buf := make([]byte, 1+50)
-	off := 0
-	off = WriteByte(buf, off, m.StartupType)
-	off = WriteASCII(buf, off, m.AuthenticationNumber, 50)
-	return buf[:off], nil
+	if m.AuthenticationNumber != "" {
+		// 有VIN码：启动类型(1) + VIN码(50)
+		buf := make([]byte, 1+50)
+		off := 0
+		off = WriteByte(buf, off, m.StartupType)
+		off = WriteASCII(buf, off, m.AuthenticationNumber, 50)
+		return buf[:off], nil
+	}
+	// 无VIN码：仅下发启动类型(1字节)
+	buf := make([]byte, 1)
+	buf[0] = m.StartupType
+	return buf, nil
 }
 
 func (m *PlatformStartDownload) Validate() []types.ValidationError {

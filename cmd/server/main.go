@@ -186,18 +186,15 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	sess.UpdateActive()
 
 	// 3. 解密数据域
-	decryptFn := sess.GetDecryptFn()
-	if proto.IsFixedKeyFuncCode(header.FuncCode) || sess.GetAuthState() == session.Authenticated {
-		if header.EncryptFlag == 0x01 && decryptFn != nil {
-			decrypted, err := decryptFn(data)
-			if err != nil {
-				logger.Warnf("[%s] decrypt func=0x%02X failed: %v", sess.ID, header.FuncCode, err)
-				sess.Recorder.RecordRecv(header.FuncCode, recorder.StatusDecodeFail,
-					fmt.Sprintf("% X", data), "", err.Error())
-				return
-			}
-			data = decrypted
+	if header.EncryptFlag == 0x01 {
+		decrypted, err := decryptMessage(sess, proto, header.FuncCode, data)
+		if err != nil {
+			logger.Warnf("[%s] decrypt func=0x%02X failed: %v", sess.ID, header.FuncCode, err)
+			sess.Recorder.RecordRecv(header.FuncCode, recorder.StatusDecodeFail,
+				fmt.Sprintf("% X", data), "", err.Error())
+			return
 		}
+		data = decrypted
 	}
 
 	// 4. 消息解码
@@ -351,7 +348,13 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 				dlHeader.EncryptFlag = 0x01
 			}
 
-			encryptFn := sess.GetEncryptFn()
+			// 加密：0x0A/0x0B/0x21始终用固定密钥，其他用当前会话密钥
+			var encryptFn func([]byte) ([]byte, error)
+			if proto.IsFixedKeyFuncCode(spec.FuncCode) {
+				encryptFn = sess.FixedCipher.Encrypt
+			} else {
+				encryptFn = sess.GetEncryptFn()
+			}
 			dlFrame, encErr := conn.Encoder.Encode(dlHeader, dlData, encryptFn)
 			if encErr != nil {
 				return fmt.Errorf("encode download frame failed: %w", encErr)
@@ -485,5 +488,21 @@ func heartbeatCheckLoop(ctx context.Context, sessMgr *session.SessionManager,
 			}
 		}
 	}
+}
+
+// decryptMessage 解密充电桩消息
+// 规则：
+//   - 0x0A/0x0B 始终用固定密钥解密（认证阶段尚未交换密钥）
+//   - 0x21回复和其他消息：gater在下发0x21时已切换到新密钥，桩回复时也已用新密钥加密
+func decryptMessage(sess *session.Session, proto types.Protocol, funcCode byte, data []byte) ([]byte, error) {
+	// 0x0A/0x0B 始终用固定密钥
+	if funcCode == types.FuncAuthRandom || funcCode == types.FuncAuthEncrypted {
+		return sess.FixedCipher.Decrypt(data)
+	}
+
+	// 0x21回复和其他消息：使用当前会话密钥
+	// gater在下发0x21时已通过SetSessionKey切换到新密钥
+	decryptFn := sess.GetDecryptFn()
+	return decryptFn(data)
 }
 

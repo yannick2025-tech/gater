@@ -85,7 +85,7 @@ func NewEngine(sessMgr *session.SessionManager, srv *server.Server, proto types.
 }
 
 // StartScenario 启动测试场景
-func (e *Engine) StartScenario(sessionID string, testCase string) (Scenario, error) {
+func (e *Engine) StartScenario(sessionID string, testCase string, params map[string]interface{}) (Scenario, error) {
 	sess, ok := e.sessMgr.Get(sessionID)
 	if !ok {
 		return nil, ErrSessionNotFound
@@ -116,6 +116,11 @@ func (e *Engine) StartScenario(sessionID string, testCase string) (Scenario, err
 		sc = NewConfigDownloadScenario(sessionID, sess, e.proto, e.logger)
 	default:
 		return nil, ErrUnknownTestCase
+	}
+
+	// 设置场景参数
+	if paramsSetter, ok := sc.(interface{ SetParams(map[string]interface{}) }); ok && params != nil {
+		paramsSetter.SetParams(params)
 	}
 
 	sc.SetSendFunc(sendFn)

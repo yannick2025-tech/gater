@@ -141,28 +141,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 func (r *Router) SetupAPI(engine *gin.Engine) {
 	api := engine.Group("/api")
 
-	// POST请求参数日志中间件：打印请求路径和body参数，方便排查问题
-	api.Use(func(c *gin.Context) {
-		if c.Request.Method == "POST" {
-			bodyBytes, err := io.ReadAll(c.Request.Body)
-			if err == nil && len(bodyBytes) > 0 {
-				// 还原body供后续handler读取
-				c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(bodyBytes), c.Request.Body))
-				// 美化JSON输出
-				var prettyJSON map[string]interface{}
-				if json.Unmarshal(bodyBytes, &prettyJSON) == nil {
-					if formatted, err := json.MarshalIndent(prettyJSON, "", "  "); err == nil {
-						fmt.Printf("[API] %s %s\n%s\n", c.Request.Method, c.Request.URL.Path, string(formatted))
-					} else {
-						fmt.Printf("[API] %s %s\n%s\n", c.Request.Method, c.Request.URL.Path, string(bodyBytes))
-					}
-				} else {
-					fmt.Printf("[API] %s %s\n%s\n", c.Request.Method, c.Request.URL.Path, string(bodyBytes))
-				}
-			}
-		}
-		c.Next()
-	})
+	// Web↔Gater 接口日志中间件：记录所有请求参数和响应，方便排查问题
+	api.Use(apiLoggingMiddleware())
 
 	{
 		// 会话管理
@@ -546,7 +526,7 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
-	sc, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase)
+	sc, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase, req.Params)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
@@ -860,4 +840,81 @@ func (r *Router) configDownload(c *gin.Context) {
 		})
 }
 
+// apiLoggingMiddleware 记录所有 Web↔Gater 接口请求和响应
+// - GET请求：记录URL查询参数
+// - POST请求：记录请求Body（JSON格式化）
+// - 所有请求：记录响应状态码和响应Body
+func apiLoggingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		path := c.Request.URL.Path
+		query := c.Request.URL.RawQuery
 
+		// 记录请求参数
+		var reqLog string
+		if method == "GET" {
+			if query != "" {
+				reqLog = fmt.Sprintf("[WEB→GATER] %s %s?%s", method, path, query)
+			} else {
+				reqLog = fmt.Sprintf("[WEB→GATER] %s %s", method, path)
+			}
+		} else if method == "POST" || method == "PUT" {
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err == nil && len(bodyBytes) > 0 {
+				// 还原body供后续handler读取
+				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				// 美化JSON输出
+				var prettyJSON map[string]interface{}
+				if json.Unmarshal(bodyBytes, &prettyJSON) == nil {
+					if formatted, fmtErr := json.MarshalIndent(prettyJSON, "", "  "); fmtErr == nil {
+						reqLog = fmt.Sprintf("[WEB→GATER] %s %s\n%s", method, path, string(formatted))
+					} else {
+						reqLog = fmt.Sprintf("[WEB→GATER] %s %s\n%s", method, path, string(bodyBytes))
+					}
+				} else {
+					reqLog = fmt.Sprintf("[WEB→GATER] %s %s\n%s", method, path, string(bodyBytes))
+				}
+			} else {
+				reqLog = fmt.Sprintf("[WEB→GATER] %s %s", method, path)
+			}
+		} else {
+			reqLog = fmt.Sprintf("[WEB→GATER] %s %s", method, path)
+		}
+		fmt.Println(reqLog)
+
+		// 捕获响应
+		w := &responseBodyWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
+		c.Writer = w
+
+		c.Next()
+
+		// 记录响应
+		statusCode := w.Status()
+		respBody := w.body.String()
+		if respBody != "" {
+			var prettyResp map[string]interface{}
+			if json.Unmarshal([]byte(respBody), &prettyResp) == nil {
+				if formatted, fmtErr := json.MarshalIndent(prettyResp, "", "  "); fmtErr == nil {
+					fmt.Printf("[GATER→WEB] %s %s %d\n%s\n", method, path, statusCode, string(formatted))
+				} else {
+					fmt.Printf("[GATER→WEB] %s %s %d\n%s\n", method, path, statusCode, respBody)
+				}
+			} else {
+				fmt.Printf("[GATER→WEB] %s %s %d\n%s\n", method, path, statusCode, respBody)
+			}
+		} else {
+			fmt.Printf("[GATER→WEB] %s %s %d\n", method, path, statusCode)
+		}
+	}
+}
+
+// responseBodyWriter 用于捕获gin响应Body
+type responseBodyWriter struct {
+	gin.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w *responseBodyWriter) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
+}

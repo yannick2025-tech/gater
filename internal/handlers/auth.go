@@ -148,6 +148,7 @@ func (h *AuthHandler) HandleAuthDataUpload(ctx *dispatcher.Context) error {
 
 // sendKeyUpdate 下发0x21密钥更新
 // 密钥生成流程：13字节随机数 → 固定密钥AES加密 → 16字节密文 → hex编码32字符ASCII（即新密钥）→ BCD16 → 倒序 → 下发
+// 重要：下发0x21后gater立即切换到新密钥（桩回复0x21时已用新密钥加密）
 func (h *AuthHandler) sendKeyUpdate(ctx *dispatcher.Context) {
 	// 1. 生成13字节随机数
 	randomBytes := make([]byte, 13)
@@ -177,12 +178,9 @@ func (h *AuthHandler) sendKeyUpdate(ctx *dispatcher.Context) {
 		originalKey[i] = 0xFF
 	}
 
-	// 6. 保存待生效的会话密钥（0x21回复成功后切换）
-	ctx.Session.SetPendingSessionKey(newKeyStr)
-
 	ctx.Logger.Infof("[%s] auth: sending 0x21 key update for postNo=%d, newKey=%s", ctx.Session.ID, ctx.PostNo, newKeyStr)
 
-	// 7. 构建并发送0x21密钥更新消息
+	// 6. 构建并发送0x21密钥更新消息（注意：0x21用固定密钥加密，SendDownload已处理）
 	keyUpdateMsg := &msg.KeyUpdateDownload{
 		OriginalKey: originalKey,
 		NewAesKey:   newKeyBCD,
@@ -191,10 +189,17 @@ func (h *AuthHandler) sendKeyUpdate(ctx *dispatcher.Context) {
 		ctx.Logger.Errorf("[%s] auth: send 0x21 key update failed: %v", ctx.Session.ID, err)
 		return
 	}
-	ctx.Logger.Infof("[%s] auth: 0x21 key update sent for postNo=%d", ctx.Session.ID, ctx.PostNo)
+
+	// 7. 下发成功后立即切换到新密钥（桩回复0x21时已用新密钥加密）
+	if err := h.sessMgr.SetSessionKey(ctx.Session.ID, newKeyStr); err != nil {
+		ctx.Logger.Errorf("[%s] auth: switch to session key failed: %v", ctx.Session.ID, err)
+		return
+	}
+	ctx.Logger.Infof("[%s] auth: 0x21 key update sent and switched to session key for postNo=%d", ctx.Session.ID, ctx.PostNo)
 }
 
 // HandleKeyUpdateUpload 处理充电桩回复0x21（密钥更新结果）
+// 密钥已在下发0x21时切换，此handler仅记录桩端的更新结果
 func (h *AuthHandler) HandleKeyUpdateUpload(ctx *dispatcher.Context) error {
 	keyUpdateMsg, ok := ctx.Message.(*msg.KeyUpdateReply)
 	if !ok {
@@ -202,18 +207,7 @@ func (h *AuthHandler) HandleKeyUpdateUpload(ctx *dispatcher.Context) error {
 	}
 
 	if keyUpdateMsg.SecretUpdateStatus == 0 {
-		// 密钥更新成功：切换到会话密钥
-		pendingKey := ctx.Session.GetPendingSessionKey()
-		if pendingKey != "" {
-			if err := h.sessMgr.SetSessionKey(ctx.Session.ID, pendingKey); err != nil {
-				ctx.Logger.Errorf("[%s] key update SUCCESS but failed to apply session key: %v", ctx.Session.ID, err)
-			} else {
-				ctx.Session.SetPendingSessionKey("")
-				ctx.Logger.Infof("[%s] key update SUCCESS for postNo=%d, switched to session key", ctx.Session.ID, ctx.PostNo)
-			}
-		} else {
-			ctx.Logger.Infof("[%s] key update SUCCESS for postNo=%d (no pending key)", ctx.Session.ID, ctx.PostNo)
-		}
+		ctx.Logger.Infof("[%s] key update SUCCESS for postNo=%d", ctx.Session.ID, ctx.PostNo)
 	} else {
 		ctx.Logger.Warnf("[%s] key update FAILED for postNo=%d, status=%d", ctx.Session.ID, ctx.PostNo, keyUpdateMsg.SecretUpdateStatus)
 	}
