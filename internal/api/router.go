@@ -867,16 +867,16 @@ func (r *Router) apiLoggingMiddleware() gin.HandlerFunc {
 			if err == nil && len(bodyBytes) > 0 {
 				// 还原body供后续handler读取
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-				// 美化JSON输出
-				var prettyJSON map[string]interface{}
-				if json.Unmarshal(bodyBytes, &prettyJSON) == nil {
-					if formatted, fmtErr := json.MarshalIndent(prettyJSON, "", "  "); fmtErr == nil {
-						reqLog = "[WEB→GATER] " + method + " " + path + "\n" + string(formatted)
+				// 紧凑JSON输出（单行，方便日志采集和分析）
+				var compactJSON map[string]interface{}
+				if json.Unmarshal(bodyBytes, &compactJSON) == nil {
+					if compact, fmtErr := json.Marshal(compactJSON); fmtErr == nil {
+						reqLog = "[WEB→GATER] " + method + " " + path + " " + string(compact)
 					} else {
-						reqLog = "[WEB→GATER] " + method + " " + path + "\n" + string(bodyBytes)
+						reqLog = "[WEB→GATER] " + method + " " + path + " " + string(bodyBytes)
 					}
 				} else {
-					reqLog = "[WEB→GATER] " + method + " " + path + "\n" + string(bodyBytes)
+					reqLog = "[WEB→GATER] " + method + " " + path + " " + string(bodyBytes)
 				}
 			} else {
 				reqLog = "[WEB→GATER] " + method + " " + path
@@ -896,15 +896,15 @@ func (r *Router) apiLoggingMiddleware() gin.HandlerFunc {
 		statusCode := w.Status()
 		respBody := w.body.String()
 		if respBody != "" {
-			var prettyResp map[string]interface{}
-			if json.Unmarshal([]byte(respBody), &prettyResp) == nil {
-				if formatted, fmtErr := json.MarshalIndent(prettyResp, "", "  "); fmtErr == nil {
-					r.logger.Infof("[GATER→WEB] %s %s %d\n%s", method, path, statusCode, string(formatted))
+			var compactResp map[string]interface{}
+			if json.Unmarshal([]byte(respBody), &compactResp) == nil {
+				if compact, fmtErr := json.Marshal(compactResp); fmtErr == nil {
+					r.logger.Infof("[GATER→WEB] %s %s %d %s", method, path, statusCode, string(compact))
 				} else {
-					r.logger.Infof("[GATER→WEB] %s %s %d\n%s", method, path, statusCode, respBody)
+					r.logger.Infof("[GATER→WEB] %s %s %d %s", method, path, statusCode, respBody)
 				}
 			} else {
-				r.logger.Infof("[GATER→WEB] %s %s %d\n%s", method, path, statusCode, respBody)
+				r.logger.Infof("[GATER→WEB] %s %s %d %s", method, path, statusCode, respBody)
 			}
 		} else {
 			r.logger.Infof("[GATER→WEB] %s %s %d", method, path, statusCode)

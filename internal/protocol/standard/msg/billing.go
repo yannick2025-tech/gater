@@ -79,7 +79,7 @@ func (m *OccupancyUpload) Decode(data []byte) error {
 	m.DeviceOrderNo, off, _ = ReadBCD(data, off, 10); m.Type, off, _ = ReadByte(data, off)
 	se, off, _ := ReadBytes(data, off, 5); m.StartElectricMeter = bytesToUint64(se)
 	ee, off, _ := ReadBytes(data, off, 5); m.StopElectricMeter = bytesToUint64(ee)
-	m.StopReason, off, _ = ReadByte(data, off); m.Time, off, _ = ReadBCD(data, off, 7)
+	m.StopReason, off, _ = ReadByte(data, off); m.Time, off, _ = ReadBCD(data, off, 7) // BCD[7] UTC时间
 	return nil
 }
 

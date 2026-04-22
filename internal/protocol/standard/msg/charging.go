@@ -125,7 +125,7 @@ func (m *ChargerStartUpload) Decode(data []byte) error {
 	elec, _, _ := ReadBytes(data, off, 5); off += 5; m.StartingElectricity = bytesToUint64(elec)
 	m.PileChargingFailureReason, off, _ = ReadByte(data, off)
 	m.AuthenticationNumber, off, _ = ReadASCII(data, off, 50)
-	m.Time, off, _ = ReadBCD(data, off, 7)
+	m.Time, off, _ = ReadBCD(data, off, 7) // BCD[7] UTC时间，保持原样解码便于定位问题
 	return nil
 }
 
@@ -206,7 +206,8 @@ func (m *ChargerStartReply) Decode(data []byte) error {
 }
 
 func (m *ChargerStartReply) Encode() ([]byte, error) {
-	buf := make([]byte, 10+10+4+4+2+4+4+4+1+1+50+1+1+int(m.FeeNum)*9+2)
+	// FeeItem编码: Hour(1)+Min(1)+PowerFee(3)+SvcFee(3)+Type(1)+LimitedP(2) = 11字节
+	buf := make([]byte, 10+10+4+4+2+4+4+4+1+1+50+1+1+int(m.FeeNum)*11+2)
 	off := 0
 	off, _ = WriteBCD(buf, off, m.ChargingOrderNumber, 10)
 	off, _ = WriteBCD(buf, off, m.ChargingPileOrderNumber, 10)
@@ -343,8 +344,8 @@ func (m *ChargerStopUpload) Decode(data []byte) error {
 		fi.ElectricFlag, off, _ = ReadByte(data, off)
 		m.FeeModelList[i] = fi
 	}
-	m.ChargeStartTime, off, _ = ReadBCD(data, off, 7)
-	m.ChargeEndTime, off, _ = ReadBCD(data, off, 7)
+	m.ChargeStartTime, off, _ = ReadBCD(data, off, 7) // BCD[7] UTC时间
+	m.ChargeEndTime, off, _ = ReadBCD(data, off, 7)   // BCD[7] UTC时间
 	return nil
 }
 

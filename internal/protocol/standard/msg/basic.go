@@ -113,7 +113,7 @@ func (m *TimeSyncReply) Decode(data []byte) error {
 		return errInsufficientData(7, len(data))
 	}
 	hex, _, _ := ReadBCD(data, 0, 7)
-	// BCD格式: YYYYMMDDHHMMSS -> "2024-02-22 15:00:25"
+	// BCD格式: YYYYMMDDHHMMSS，UTC时间，保持原样解码便于定位问题
 	if len(hex) >= 14 {
 		m.DateTime = fmt.Sprintf("%s-%s-%s %s:%s:%s",
 			hex[0:4], hex[4:6], hex[6:8], hex[8:10], hex[10:12], hex[12:14])
