@@ -37,3 +37,13 @@ export function exportReport(sessionId: string) {
 export function configDownload(gunNumber: string, items: ConfigItem[]) {
   return request.post<any, TestStatus>('/test/config', { gunNumber, items })
 }
+
+// 停止充电（发送0x08消息到充电桩）
+export function stopTest(sessionId: string) {
+  return request.post<any, { sessionId: string; platformStopTime: string }>('/test/stop', { sessionId })
+}
+
+// 查询充电信息（前端定时轮询）
+export function getChargingInfo(sessionId: string) {
+  return request.get<any, any>(`/test/charging-info/${sessionId}`)
+}

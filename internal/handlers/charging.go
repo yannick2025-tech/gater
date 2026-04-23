@@ -2,10 +2,13 @@
 package handlers
 
 import (
+	"fmt"
+
 	"github.com/yannick2025-tech/nts-gater/internal/dispatcher"
 	"github.com/yannick2025-tech/nts-gater/internal/generator"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+	"github.com/yannick2025-tech/nts-gater/internal/session"
 	logging "github.com/yannick2025-tech/gwc-logging"
 )
 
@@ -98,6 +101,9 @@ func (h *ChargingHandler) HandleChargerStopUpload(ctx *dispatcher.Context) error
 	ctx.Logger.Infof("[charging] charger stop: postNo=%d orderNo=%s reason=%d soc=%d",
 		ctx.PostNo, stopMsg.ChargeOrderNo, stopMsg.StopReason, stopMsg.StopSoc)
 
+	// 更新充电状态：充电桩充电开始/结束时间、停止SOC
+	ctx.Session.SetChargingStopped(stopMsg.ChargeStartTime, stopMsg.ChargeEndTime, stopMsg.StopSoc)
+
 	reply := &msg.ChargerStopReply{
 		ChargeOrderNo: stopMsg.ChargeOrderNo,
 		ResponseCode:  0x00, // 成功
@@ -115,9 +121,116 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 	ctx.Logger.Debugf("[charging] charging data: postNo=%d orderNo=%s elec=%.4f soc=%d%%",
 		ctx.PostNo, dataMsg.ChargingOrderNumber, dataMsg.CurrentElec, dataMsg.CurrentSOC)
 
+	currentElecKWh := float64(dataMsg.CurrentElec) / 10000
+
+	// 更新充电状态：电量、SOC、订单号
+	ctx.Session.UpdateChargingData(
+		currentElecKWh,
+		dataMsg.CurrentSOC,
+		dataMsg.ChargingOrderNumber,
+		dataMsg.ToJSONMap(),
+	)
+
+	// ===== 0x06 校验 =====
+	cs := ctx.Session.GetChargingState()
+	if cs != nil && cs.ChargingDataCount > 1 {
+		// 1. 电量递增校验
+		if currentElecKWh < cs.LastElec {
+			ctx.Session.AddValidationResult(0x06, "电量递增", false,
+				fmt.Sprintf("currentElec=%.4f < lastElec=%.4f", currentElecKWh, cs.LastElec))
+			h.logger.Warnf("[charging] elec decreased: current=%.4f last=%.4f", currentElecKWh, cs.LastElec)
+		} else {
+			ctx.Session.AddValidationResult(0x06, "电量递增", true,
+				fmt.Sprintf("currentElec=%.4f >= lastElec=%.4f", currentElecKWh, cs.LastElec))
+		}
+
+		// 2. 分时段累计信息校验
+		prices := ctx.Session.GetPrices()
+		for i, item := range dataMsg.OverTimeAccumulateInformationList {
+			// 2a. 计费校验: electricityPrices * electricity / 10000 ≈ electricityFee
+			expectedElecFee := float64(item.ElectricityPrices) * float64(item.Electricity) / 10000
+			actualElecFee := float64(item.ElectricityFee)
+			if diff := expectedElecFee - actualElecFee; diff < -1 || diff > 1 {
+				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("电费计算[时段%d]", i), false,
+					fmt.Sprintf("expected=%.2f actual=%.2f", expectedElecFee, actualElecFee))
+				h.logger.Warnf("[charging] elecFee mismatch: expected=%.2f actual=%.2f", expectedElecFee, actualElecFee)
+			} else {
+				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("电费计算[时段%d]", i), true, "")
+			}
+
+			// 2b. 服务费校验: serviceChargePrice * electricity / 10000 ≈ serviceCharge
+			expectedSvcFee := float64(item.ServiceChargePrice) * float64(item.Electricity) / 10000
+			actualSvcFee := float64(item.ServiceCharge)
+			if diff := expectedSvcFee - actualSvcFee; diff < -1 || diff > 1 {
+				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("服务费计算[时段%d]", i), false,
+					fmt.Sprintf("expected=%.2f actual=%.2f", expectedSvcFee, actualSvcFee))
+				h.logger.Warnf("[charging] svcFee mismatch: expected=%.2f actual=%.2f", expectedSvcFee, actualSvcFee)
+			} else {
+				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("服务费计算[时段%d]", i), true, "")
+			}
+
+			// 2c. 峰谷标识校验（如果有WEB端费率配置）
+			if len(prices) > 0 {
+				gaterType := h.getPeakValleyTypeForTime(item.EndTime, prices)
+				if gaterType != item.PeaksValleysFlag {
+					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), false,
+						fmt.Sprintf("gaterType=%d pileType=%d", gaterType, item.PeaksValleysFlag))
+					h.logger.Warnf("[charging] peakValley mismatch: gater=%d pile=%d", gaterType, item.PeaksValleysFlag)
+				} else {
+					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), true, "")
+				}
+			}
+		}
+	}
+
 	// 回复确认
 	reply := &msg.ChargingDataReply{Confirm: 0x00}
 	return ctx.ReplyMessage(reply)
+}
+
+// getPeakValleyTypeForTime 根据时间和WEB端费率配置返回峰谷类型
+func (h *ChargingHandler) getPeakValleyTypeForTime(endTimeBCD string, prices []session.PriceConfig) byte {
+	// endTimeBCD 格式: "202604221520" → 取时间部分 "1520"
+	if len(endTimeBCD) < 12 {
+		return 0
+	}
+	hourMin := endTimeBCD[8:12] // "1520"
+	hour := 0
+	min := 0
+	fmt.Sscanf(hourMin, "%2d%2d", &hour, &min)
+	timeVal := hour*60 + min
+
+	for _, p := range prices {
+		startH, startM := parseHHMM(p.StartTime)
+		endH, endM := parseHHMM(p.EndTime)
+		startVal := startH*60 + startM
+		endVal := endH*60 + endM
+
+		inRange := false
+		if endVal > startVal {
+			inRange = timeVal >= startVal && timeVal < endVal
+		} else {
+			inRange = timeVal >= startVal || timeVal < endVal
+		}
+
+		if inRange {
+			// 根据电费价格判断峰谷类型
+			if p.ElectricityFee >= 1.4 {
+				return 1 // 尖
+			} else if p.ElectricityFee >= 0.9 {
+				return 2 // 峰
+			} else if p.ElectricityFee >= 0.5 {
+				return 3 // 平
+			}
+			return 4 // 谷
+		}
+	}
+	return 0
+}
+
+func parseHHMM(s string) (hour, min int) {
+	fmt.Sscanf(s, "%d:%d", &hour, &min)
+	return
 }
 
 // HandlePlatformStartDownload 处理平台下发0x03（下载方向，由业务API触发）

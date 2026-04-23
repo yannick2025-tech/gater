@@ -158,6 +158,8 @@ func (r *Router) SetupAPI(engine *gin.Engine) {
 
 		// 测试管理
 		api.POST("/test/start", r.startTest)
+		api.POST("/test/stop", r.stopTest)
+		api.GET("/test/charging-info/:sessionId", r.getChargingInfo)
 		api.GET("/test/status/:sessionId", r.getTestStatus)
 		api.GET("/test/results", r.getTestResults)
 		api.GET("/test/detail/:sessionId", r.getTestDetail)
@@ -571,6 +573,146 @@ func (r *Router) startTest(c *gin.Context) {
 			"stepName":  result.StepName,
 		},
 	})
+}
+
+// stopTest 停止充电（发送0x08消息到充电桩）
+// POST /api/test/stop
+// Body: {"sessionId":"A1B2C3D4E5F6G7H8"}
+func (r *Router) stopTest(c *gin.Context) {
+	var req struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	if req.SessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "sessionId is required"})
+		return
+	}
+
+	// 检查session是否存在且在线
+	sess, ok := r.sessMgr.Get(req.SessionID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "session not found"})
+		return
+	}
+	if !sess.IsConnected() {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "session is offline"})
+		return
+	}
+
+	// 记录平台充电结束时间（毫秒精度）
+	now := time.Now()
+	sess.SetPlatformStopTime(now)
+
+	// 通过场景引擎发送0x08停止充电消息
+	if err := r.scenarioEngine.SendStopCharge(req.SessionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"sessionId":      req.SessionID,
+			"platformStopTime": now.Format("2006-01-02 15:04:05.000"),
+		},
+	})
+}
+
+// getChargingInfo 查询充电信息（前端定时轮询）
+// GET /api/test/charging-info/:sessionId
+func (r *Router) getChargingInfo(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+
+	sess, ok := r.sessMgr.Get(sessionID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "session not found"})
+		return
+	}
+
+	cs := sess.GetChargingState()
+	prices := sess.GetPrices()
+
+	result := gin.H{
+		"sessionId": sessionID,
+		"isOnline":  sess.IsConnected(),
+	}
+
+	// 时段费用配置
+	priceList := make([]gin.H, len(prices))
+	for i, p := range prices {
+		priceList[i] = gin.H{
+			"startTime":     p.StartTime,
+			"endTime":       p.EndTime,
+			"electricityFee": p.ElectricityFee,
+			"serviceFee":    p.ServiceFee,
+		}
+	}
+	result["prices"] = priceList
+
+	if cs != nil {
+		chargingInfo := gin.H{
+			"platformStartTime":  formatTime(cs.PlatformStartTime),
+			"firstDataTime":      formatTime(cs.FirstDataTime),
+			"lastDataTime":       formatTime(cs.LastDataTime),
+			"platformStopTime":   formatTimeMs(cs.PlatformStopTime),
+			"chargerStartTime":   cs.ChargerStartTime,
+			"chargerStopTime":    cs.ChargerStopTime,
+			"chargingOrderNo":    cs.ChargingOrderNo,
+			"currentElec":        cs.CurrentElec,
+			"currentSOC":         cs.CurrentSOC,
+			"stopSOC":            cs.StopSOC,
+			"chargingDataCount":  cs.ChargingDataCount,
+			"isChargingStopped":  cs.IsChargingStopped,
+		}
+		// 充电时长（秒）
+		if !cs.FirstDataTime.IsZero() {
+			endT := time.Now()
+			if cs.IsChargingStopped && !cs.LastDataTime.IsZero() {
+				endT = cs.LastDataTime
+			}
+			duration := endT.Sub(cs.FirstDataTime)
+			chargingInfo["chargingDurationSec"] = int(duration.Seconds())
+		}
+		result["chargingInfo"] = chargingInfo
+
+		// 校验结果摘要
+		passCount := 0
+		failCount := 0
+		for _, v := range cs.ValidationResults {
+			if v.Passed {
+				passCount++
+			} else {
+				failCount++
+			}
+		}
+		result["validationSummary"] = gin.H{
+			"total": len(cs.ValidationResults),
+			"pass":  passCount,
+			"fail":  failCount,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": result})
+}
+
+// formatTime 格式化时间（无毫秒）
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
+}
+
+// formatTimeMs 格式化时间（带毫秒）
+func formatTimeMs(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05.000")
 }
 
 // getTestStatus 查询测试进度

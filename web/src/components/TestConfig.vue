@@ -140,8 +140,9 @@
       <!-- Footer：历史/活跃会话不同提示 -->
       <div class="card-footer">
         <span v-if="isHistorical" class="offline-hint">该会话已完成，仅可查看配置</span>
-        <span v-else-if="!canStartTest" class="offline-hint">请选择一个活跃会话</span>
+        <span v-else-if="!canStartTest && !isCharging" class="offline-hint">请选择一个活跃会话</span>
         <el-button
+          v-if="!isCharging"
           type="primary"
           size="large"
           class="start-btn"
@@ -149,6 +150,16 @@
           @click="handleStart"
         >
           {{ isHistorical ? '已结束' : '开始测试' }}
+        </el-button>
+        <el-button
+          v-else
+          type="danger"
+          size="large"
+          class="start-btn"
+          :disabled="isStopDisabled"
+          @click="handleStop"
+        >
+          {{ isStopDisabled ? '已结束' : '结束充电' }}
         </el-button>
       </div>
     </el-form>
@@ -165,11 +176,18 @@ const props = defineProps<{
   canStartTest?: boolean
   /** 是否为历史会话（只读模式，不可配置） */
   isHistorical?: boolean
+  /** 是否正在充电中 */
+  isCharging?: boolean
+  /** 充电是否已停止（0x05已收到） */
+  isChargingStopped?: boolean
 }>()
 
 const emit = defineEmits<{
-  start: [data: Record<string, unknown>]
+  (e: 'start', data: Record<string, unknown>): void
+  (e: 'stop'): void
 }>()
+
+const isStopDisabled = computed(() => props.isChargingStopped === true)
 
 const formRef = ref<FormInstance>()
 
@@ -248,6 +266,10 @@ function handleStart() {
   }
 
   emit('start', { ...formData.value })
+}
+
+function handleStop() {
+  emit('stop')
 }
 </script>
 

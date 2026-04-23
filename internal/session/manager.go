@@ -71,6 +71,9 @@ type Session struct {
 	LastActive    time.Time
 	Prices        []PriceConfig            // 时段费率配置（WEB端传入）
 
+	// 充电状态追踪
+	ChargingState *ChargingState           // 充电过程状态（0x03/0x06/0x05更新）
+
 	mu sync.RWMutex
 }
 
@@ -80,6 +83,42 @@ type PriceConfig struct {
 	EndTime       string  // "HH:mm"
 	ElectricityFee float64 // 电费（元/kWh）
 	ServiceFee    float64 // 服务费（元/kWh）
+}
+
+// ChargingState 充电过程状态
+type ChargingState struct {
+	PlatformStartTime   time.Time // 平台充电开始时间（下发0x03时间点）
+	FirstDataTime       time.Time // 收到第1个0x06时间
+	LastDataTime        time.Time // 收到最后0x06时间（每次更新）
+	PlatformStopTime    time.Time // 平台下发0x08时间
+	ChargerStartTime    string    // 充电桩充电开始时间（从0x05的chargeStartTime取）
+	ChargerStopTime     string    // 充电桩充电结束时间（从0x05的chargeStopTime取）
+	ChargingOrderNo     string    // 充电订单号（从0x06取）
+	CurrentElec         float64   // 当前电量（0x06的currentElec，放大10000倍前的原始值）
+	LastElec            float64   // 上一次电量（用于校验递增）
+	CurrentSOC          byte      // 当前SOC（0x06的currentSoc）
+	StopSOC             byte      // 结束SOC（0x05的stopSoc）
+	ChargingDataCount   int       // 收到0x06次数
+	DataRecords         []ChargingDataRecord // 0x06分时段累计信息快照
+	ValidationResults   []ValidationResult   // 校验结果
+	IsChargingStopped   bool      // 充电是否已结束（收到0x05后设为true）
+}
+
+// ChargingDataRecord 0x06充电数据快照
+type ChargingDataRecord struct {
+	Timestamp time.Time
+	Elec      float64
+	SOC       byte
+	Data      interface{} // 原始0x06消息ToJSONMap
+}
+
+// ValidationResult 校验结果
+type ValidationResult struct {
+	Timestamp time.Time
+	FuncCode  byte
+	Rule      string // 校验规则描述
+	Passed    bool
+	Message   string // 详细信息/告警内容
 }
 
 // GetEncryptFn 获取当前加密函数
@@ -142,6 +181,100 @@ func (s *Session) GetPrices() []PriceConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Prices
+}
+
+// GetChargingState 获取充电状态（线程安全副本）
+func (s *Session) GetChargingState() *ChargingState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.ChargingState == nil {
+		return nil
+	}
+	cp := *s.ChargingState
+	return &cp
+}
+
+// InitChargingState 初始化充电状态（0x03下发时调用）
+func (s *Session) InitChargingState() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ChargingState == nil {
+		s.ChargingState = &ChargingState{}
+	}
+}
+
+// SetPlatformStartTime 设置平台充电开始时间
+func (s *Session) SetPlatformStartTime(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ChargingState == nil {
+		s.ChargingState = &ChargingState{}
+	}
+	s.ChargingState.PlatformStartTime = t
+}
+
+// SetPlatformStopTime 设置平台充电结束时间
+func (s *Session) SetPlatformStopTime(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ChargingState == nil {
+		s.ChargingState = &ChargingState{}
+	}
+	s.ChargingState.PlatformStopTime = t
+}
+
+// UpdateChargingData 更新0x06充电数据
+func (s *Session) UpdateChargingData(elec float64, soc byte, orderNo string, data interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ChargingState == nil {
+		s.ChargingState = &ChargingState{}
+	}
+	cs := s.ChargingState
+	cs.ChargingDataCount++
+	cs.LastElec = cs.CurrentElec
+	cs.CurrentElec = elec
+	cs.CurrentSOC = soc
+	cs.ChargingOrderNo = orderNo
+	cs.LastDataTime = time.Now()
+	if cs.FirstDataTime.IsZero() {
+		cs.FirstDataTime = cs.LastDataTime
+	}
+	cs.DataRecords = append(cs.DataRecords, ChargingDataRecord{
+		Timestamp: cs.LastDataTime,
+		Elec:      elec,
+		SOC:       soc,
+		Data:      data,
+	})
+}
+
+// SetChargingStopped 设置充电结束（0x05收到后调用）
+func (s *Session) SetChargingStopped(startTime, stopTime string, stopSoc byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ChargingState == nil {
+		s.ChargingState = &ChargingState{}
+	}
+	s.ChargingState.ChargerStartTime = startTime
+	s.ChargingState.ChargerStopTime = stopTime
+	s.ChargingState.StopSOC = stopSoc
+	s.ChargingState.IsChargingStopped = true
+}
+
+// AddValidationResult 添加校验结果
+func (s *Session) AddValidationResult(funcCode byte, rule string, passed bool, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ChargingState == nil {
+		s.ChargingState = &ChargingState{}
+	}
+	s.ChargingState.ValidationResults = append(s.ChargingState.ValidationResults, ValidationResult{
+		Timestamp: time.Now(),
+		FuncCode:  funcCode,
+		Rule:      rule,
+		Passed:    passed,
+		Message:   message,
+	})
 }
 
 // SetRandomKey 设置13位随机密钥（0x0A认证流程）

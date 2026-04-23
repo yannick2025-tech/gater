@@ -3,8 +3,11 @@ package scenario
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/yannick2025-tech/nts-gater/internal/generator"
+	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
 	"github.com/yannick2025-tech/nts-gater/internal/server"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
@@ -166,6 +169,32 @@ func (e *Engine) RemoveScenario(sessionID string) {
 		sc.Stop()
 		delete(e.scenarios, sessionID)
 	}
+}
+
+// SendStopCharge 发送0x08停止充电消息到充电桩
+func (e *Engine) SendStopCharge(sessionID string) error {
+	sess, ok := e.sessMgr.Get(sessionID)
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	conn, ok := e.srv.FindConnectionByPostNo(sess.PostNo)
+	if !ok {
+		return fmt.Errorf("connection not found for postNo=%d", sess.PostNo)
+	}
+
+	stopMsg := &msg.PlatformStopDownload{
+		PlatformOrderNumber:       generator.GenerateOrderNo(),
+		PileChargingFailureReason: 0x00, // 正常停止
+	}
+
+	sendFn := e.createSendFn(sess, conn)
+	if err := sendFn(stopMsg); err != nil {
+		return fmt.Errorf("send 0x08 failed: %w", err)
+	}
+
+	e.logger.Infof("[engine] sent 0x08 stop charge for session=%s postNo=%d", sessionID, sess.PostNo)
+	return nil
 }
 
 // StartConfigScenario 启动配置下发场景（需要额外的JSON配置项）

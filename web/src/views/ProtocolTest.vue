@@ -19,8 +19,16 @@
       <TestConfig
         :can-start-test="hasActiveSession"
         :is-historical="selectionState === 'historical'"
+        :is-charging="isCharging"
+        :is-charging-stopped="isChargingStopped"
         @start="handleStartTest"
+        @stop="handleStopTest"
       />
+    </div>
+
+    <!-- 充电信息面板（充电中或充电结束后显示） -->
+    <div class="section-wrapper" v-if="chargingInfo">
+      <ChargingInfoPanel :info="chargingInfo" />
     </div>
 
     <!-- 第3块：测试结果（选中会话后显示） -->
@@ -45,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useDeviceStore } from '@/stores/device'
 import { useTestStore } from '@/stores/test'
@@ -55,6 +63,8 @@ import TestConfig from '@/components/TestConfig.vue'
 import TestResults from '@/components/TestResults.vue'
 import TestDetailModal from '@/components/TestDetailModal.vue'
 import MessageViewModal from '@/components/MessageViewModal.vue'
+import ChargingInfoPanel from '@/components/ChargingInfoPanel.vue'
+import { stopTest as stopTestApi, getChargingInfo } from '@/api/test'
 
 const deviceStore = useDeviceStore()
 const testStore = useTestStore()
@@ -90,6 +100,56 @@ const hasActiveSession = computed(() => {
   return true
 })
 
+// ========== 充电状态管理 ==========
+const chargingInfo = ref<any>(null)
+const chargingPollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+
+const isCharging = computed(() => {
+  const sess = deviceStore.selectedSession
+  return sess?.testStatus === 'running' && chargingInfo.value?.chargingInfo != null
+})
+
+const isChargingStopped = computed(() => {
+  return chargingInfo.value?.chargingInfo?.isChargingStopped === true
+})
+
+function startChargingPolling(sessionId: string) {
+  stopChargingPolling()
+  // 立即查一次
+  fetchChargingInfo(sessionId)
+  // 每5秒轮询
+  chargingPollTimer.value = setInterval(() => {
+    fetchChargingInfo(sessionId)
+  }, 5000)
+}
+
+function stopChargingPolling() {
+  if (chargingPollTimer.value) {
+    clearInterval(chargingPollTimer.value)
+    chargingPollTimer.value = null
+  }
+}
+
+async function fetchChargingInfo(sessionId: string) {
+  try {
+    const data = await getChargingInfo(sessionId)
+    chargingInfo.value = data
+  } catch {
+    // ignore
+  }
+}
+
+async function handleStopTest() {
+  const sessionId = deviceStore.selectedSession?.sessionId
+  if (!sessionId) return
+  try {
+    await stopTestApi(sessionId)
+    ElMessage.success('已发送结束充电指令')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '结束充电失败')
+  }
+}
+
 /**
  * 测试结果列表：
  * - 活跃会话：显示全部结果（含运行中的）
@@ -115,6 +175,7 @@ onMounted(() => {
 onUnmounted(() => {
   deviceStore.stopSessionPolling()
   testStore.stopPolling()
+  stopChargingPolling()
 })
 
 // ========== 事件处理 ==========
@@ -149,7 +210,13 @@ function handleDisconnect() {
 }
 
 function handleStartTest(data: Record<string, unknown>) {
-  testStore.startTestWithConfig(data)
+  testStore.startTestWithConfig(data).then(() => {
+    // 开始测试后启动充电信息轮询
+    const sessionId = deviceStore.selectedSession?.sessionId
+    if (sessionId) {
+      startChargingPolling(sessionId)
+    }
+  })
 }
 
 function handleViewDetail(row: any) {

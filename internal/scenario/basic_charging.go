@@ -267,6 +267,8 @@ func (s *BasicChargingScenario) executeStep() {
 			return
 		}
 		s.logger.Infof("[scenario:%s] sent 0x03 platform start charge", s.sessionID)
+		// 记录平台充电开始时间
+		s.sess.SetPlatformStartTime(time.Now())
 		// 等待桩的0x04回复
 	}
 
