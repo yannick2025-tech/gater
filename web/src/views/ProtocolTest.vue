@@ -174,8 +174,26 @@ const filteredResults = computed(() => {
   return testStore.testResults.filter(r => r.sessionId === sess.sessionId)
 })
 
-// 页面挂载时启动会话列表轮询
-onMounted(() => {
+// 监听session列表变化，同步本地测试状态
+watch(() => deviceStore.selectedSession, (sess) => {
+  if (sess && sess.testStatus === 'running') {
+    isTestRunning.value = true
+  } else if (sess && sess.testStatus !== 'running' && isTestRunning.value && !chargingInfo.value?.chargingInfo) {
+    // session列表显示测试不再运行且无充电信息，则重置
+    isTestRunning.value = false
+  }
+})
+
+// 页面挂载时启动会话列表轮询，并自动恢复正在测试的会话
+onMounted(async () => {
+  await deviceStore.fetchSessions()
+  // 刷新后恢复：自动选中正在测试的在线会话
+  const runningSession = deviceStore.sessionList.find(
+    (s: SessionItem) => s.isOnline && s.testStatus === 'running'
+  )
+  if (runningSession) {
+    handleSelectSession(runningSession)
+  }
   deviceStore.startSessionPolling(10000)
 })
 
