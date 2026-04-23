@@ -341,17 +341,26 @@ func (r *Router) getSessions(c *gin.Context) {
 	list := make([]gin.H, 0, len(sessions))
 	for _, sess := range sessions {
 		authState := sess.GetAuthState().String()
-		list = append(list, gin.H{
+		item := gin.H{
 			"sessionId":       sess.ID,
 			"postNo":          sess.PostNo,
 			"gunNumber":       fmt.Sprintf("%d", sess.PostNo),
 			"authState":       authState,
-			"isOnline":        authState == "authenticated",
+			"isOnline":        sess.IsConnected(),
 			"protocolName":    "XX标准协议",
 			"protocolVersion": "v1.6.0",
 			"connectedAt":     sess.CreatedAt.Format("2006-01-02 15:04:05"),
 			"lastActive":      sess.LastActive.Format("2006-01-02 15:04:05"),
-		})
+		}
+		// 补充测试状态（如正在运行场景）
+		if sc, ok := r.scenarioEngine.GetScenario(sess.ID); ok {
+			if result := sc.Result(); result != nil {
+				item["testStatus"] = string(result.State)
+				item["testCase"] = result.ScenarioName
+				item["testProgress"] = result.Progress
+			}
+		}
+		list = append(list, item)
 		activeSessionIDs[sess.ID] = true
 	}
 

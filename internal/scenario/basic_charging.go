@@ -91,6 +91,34 @@ func (s *BasicChargingScenario) SetParams(params map[string]interface{}) {
 			s.vinCode = vin
 		}
 	}
+	// 解析时段费率并存入session（供0x04 handler使用）
+	if v, ok := params["prices"]; ok {
+		if pricesRaw, ok := v.([]interface{}); ok {
+			prices := make([]session.PriceConfig, 0, len(pricesRaw))
+			for _, p := range pricesRaw {
+				if pm, ok := p.(map[string]interface{}); ok {
+					pc := session.PriceConfig{}
+					if st, ok := pm["startTime"].(string); ok {
+						pc.StartTime = st
+					}
+					if et, ok := pm["endTime"].(string); ok {
+						pc.EndTime = et
+					}
+					if ef, ok := pm["electricityFee"].(float64); ok {
+						pc.ElectricityFee = ef
+					}
+					if sf, ok := pm["serviceFee"].(float64); ok {
+						pc.ServiceFee = sf
+					}
+					prices = append(prices, pc)
+				}
+			}
+			if len(prices) > 0 {
+				s.sess.SetPrices(prices)
+				s.logger.Infof("[scenario:%s] stored %d price rules from WEB params", s.sessionID, len(prices))
+			}
+		}
+	}
 }
 
 // State 获取当前状态

@@ -74,11 +74,33 @@ func (m *BMSStaticUpload) Validate() []types.ValidationError { return nil }
 
 func (m *BMSStaticUpload) ToJSONMap() map[string]interface{} {
 	return map[string]interface{}{
-		"theCurrentOrderNumber": m.TheCurrentOrderNumber,
-		"bmsCommunicationProtocolVersionNumber": m.BmsCommunicationProtocolVersionNumber,
-		"batteryType": m.BatteryType, "maximumAllowableTotalChargingVoltage": m.MaximumAllowableTotalChargingVoltage,
-		"maximumOutputVoltage": m.MaximumOutputVoltage, "minimumOutputVoltage": m.MinimumOutputVoltage,
-		"maximumOutputCurrent": m.MaximumOutputCurrent,
+		"theCurrentOrderNumber":                    m.TheCurrentOrderNumber,
+		"bmsCommunicationProtocolVersionNumber":   m.BmsCommunicationProtocolVersionNumber,
+		"batteryType":                              m.BatteryType,
+		"ratedCapacityOfVehicleBatteryPack":        m.RatedCapacityOfVehicleBatteryPack,
+		"ratedVoltageOfTheVehicleBatteryPack":      m.RatedVoltageOfTheVehicleBatteryPack,
+		"batteryManufacturer":                      m.BatteryManufacturer,
+		"batteryPackSerialNumber":                  m.BatteryPackSerialNumber,
+		"batteryPackDateOfManufacture":             m.BatteryPackDateOfManufacture,
+		"batteryPackNumberOfCharges":               m.BatteryPackNumberOfCharges,
+		"batteryPackTitleMarking":                  m.BatteryPackTitleMarking,
+		"vin":                                      m.Vin,
+		"theMaximumVoltageOfASingleCell":           m.TheMaximumVoltageOfASingleCell,
+		"theHighestCurrentOfASingleBattery":        m.TheHighestCurrentOfASingleBattery,
+		"powerBatteryNominalTotalElectricalEnergy": m.PowerBatteryNominalTotalElectricalEnergy,
+		"maximumAllowableTotalChargingVoltage":     m.MaximumAllowableTotalChargingVoltage,
+		"maximumPermissibleTemperature":            m.MaximumPermissibleTemperature,
+		"theStateOfChargeOfTheVehiclePowerBattery": m.TheStateOfChargeOfTheVehiclePowerBattery,
+		"vehiclePowerBatteryCurrentBatteryVoltage": m.VehiclePowerBatteryCurrentBatteryVoltage,
+		"maximumOutputVoltage":                     m.MaximumOutputVoltage,
+		"minimumOutputVoltage":                     m.MinimumOutputVoltage,
+		"maximumOutputCurrent":                     m.MaximumOutputCurrent,
+		"batteryReadiness":                         m.BatteryReadiness,
+		"bmsSoftwareVersion":                       m.BmsSoftwareVersion,
+		"chargerCommunicationProtocolVersionNumber": m.ChargerCommunicationProtocolVersionNumber,
+		"crmIdentificationResults":                 m.CrmIdentificationResults,
+		"theMinimumOutputCurrentOfTheCharger":      m.TheMinimumOutputCurrentOfTheCharger,
+		"chargerNumber":                            m.ChargerNumber,
 	}
 }
 

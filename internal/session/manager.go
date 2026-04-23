@@ -62,14 +62,24 @@ type Session struct {
 	ConnID        string
 	AuthState     AuthState
 	KeyState      KeyState
+	Connected     bool                     // TCP连接是否在线
 	FixedCipher   *crypto.AESCBCCipher // 固定密钥加密器
 	SessionCipher *crypto.AESCBCCipher // 会话密钥加密器
 	RandomKey     []byte               // 13位随机密钥（0x0A下发）
 	Recorder      *recorder.SessionRecorder // 消息记录器
 	CreatedAt     time.Time
 	LastActive    time.Time
+	Prices        []PriceConfig            // 时段费率配置（WEB端传入）
 
 	mu sync.RWMutex
+}
+
+// PriceConfig 时段费率配置
+type PriceConfig struct {
+	StartTime     string  // "HH:mm"
+	EndTime       string  // "HH:mm"
+	ElectricityFee float64 // 电费（元/kWh）
+	ServiceFee    float64 // 服务费（元/kWh）
 }
 
 // GetEncryptFn 获取当前加密函数
@@ -104,6 +114,34 @@ func (s *Session) GetAuthState() AuthState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.AuthState
+}
+
+// SetConnected 设置连接状态
+func (s *Session) SetConnected(connected bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Connected = connected
+}
+
+// IsConnected 获取连接状态
+func (s *Session) IsConnected() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Connected
+}
+
+// SetPrices 设置时段费率配置（WEB端传入）
+func (s *Session) SetPrices(prices []PriceConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Prices = prices
+}
+
+// GetPrices 获取时段费率配置
+func (s *Session) GetPrices() []PriceConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Prices
 }
 
 // SetRandomKey 设置13位随机密钥（0x0A认证流程）
@@ -182,6 +220,7 @@ func (m *SessionManager) Create(postNo uint32, connID string) (*Session, error) 
 		ConnID:      connID,
 		AuthState:   AuthNone,
 		KeyState:    KeyFixed,
+		Connected:   true, // 新建会话时连接在线
 		FixedCipher: fixedCipher,
 		Recorder:    recorder.NewSessionRecorder(id, postNo),
 		CreatedAt:   now,

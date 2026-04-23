@@ -492,12 +492,26 @@ func (m *ChargingDataUpload) ToJSONMap() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"chargingOrderNumber": m.ChargingOrderNumber, "pileEndOrderNumber": m.PileEndOrderNumber,
-		"currentElec": m.CurrentElec, "currentSOC": m.CurrentSOC,
-		"outputChargingVoltage": m.OutputChargingVoltage, "outputChargingCurrent": m.OutputChargingCurrent,
-		"pileTemperature": m.PileTemperature, "chargerTemperature": m.ChargerTemperature,
-		"overTimeAccumulateInformationCount": m.OverTimeAccumulateInformationCount,
-		"overTimeAccumulateInformationList": items,
+		"chargingOrderNumber":                   m.ChargingOrderNumber,
+		"pileEndOrderNumber":                    m.PileEndOrderNumber,
+		"currentElec":                           m.CurrentElec,
+		"currentSOC":                            m.CurrentSOC,
+		"outputChargingVoltage":                 m.OutputChargingVoltage,
+		"outputChargingCurrent":                 m.OutputChargingCurrent,
+		"inputPhaseAChargeVoltage":              m.InputPhaseAChargeVoltage,
+		"inputAPhaseChargingCurrent":            m.InputAPhaseChargingCurrent,
+		"inputBPhaseChargingVoltage":            m.InputBPhaseChargingVoltage,
+		"inputBPhaseChargingCurrent":            m.InputBPhaseChargingCurrent,
+		"inputCPhaseChargingVoltage":            m.InputCPhaseChargingVoltage,
+		"inputCPhaseChargeCurrent":              m.InputCPhaseChargeCurrent,
+		"pileTemperature":                       m.PileTemperature,
+		"chargerTemperature":                    m.ChargerTemperature,
+		"carTemperature":                        m.CarTemperature,
+		"demandChargingVoltage":                 m.DemandChargingVoltage,
+		"demandChargingCurrent":                 m.DemandChargingCurrent,
+		"twoChargerTogether":                    m.TwoChargerTogether,
+		"overTimeAccumulateInformationCount":    m.OverTimeAccumulateInformationCount,
+		"overTimeAccumulateInformationList":     items,
 	}
 }
 

@@ -431,6 +431,9 @@ func onDisconnect(conn *server.Connection, postNo uint32, sessMgr *session.Sessi
 		return
 	}
 
+	// 标记会话为断开状态
+	sess.SetConnected(false)
+
 	// 停止场景
 	scenarioEngine.RemoveScenario(sess.ID)
 

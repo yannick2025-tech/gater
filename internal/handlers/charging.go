@@ -32,19 +32,40 @@ func (h *ChargingHandler) HandleChargerStartUpload(ctx *dispatcher.Context) erro
 
 	// 构建回复
 	limits := generator.DefaultChargingLimits()
-	billingRules := generator.GenerateBillingRules()
 
-	// 将 generator.FeeItem 转为 msg.FeeItem
-	msgFees := make([]msg.FeeItem, len(billingRules))
-	for i, f := range billingRules {
-		msgFees[i] = msg.FeeItem{
-			Hour:     f.Hour,
-			Min:      f.Min,
-			PowerFee: f.PowerFee,
-			SvcFee:   f.SvcFee,
-			Type:     f.Type,
-			LimitedP: f.LimitedP,
+	// 费率列表：优先从session获取WEB端传入的prices，否则使用默认值
+	var msgFees []msg.FeeItem
+	prices := ctx.Session.GetPrices()
+	if len(prices) > 0 {
+		// 将WEB端prices转为24小时费率列表（金额已放大10000倍）
+		billingRules := generator.PricesToFeeItems(prices)
+		msgFees = make([]msg.FeeItem, len(billingRules))
+		for i, f := range billingRules {
+			msgFees[i] = msg.FeeItem{
+				Hour:     f.Hour,
+				Min:      f.Min,
+				PowerFee: f.PowerFee,
+				SvcFee:   f.SvcFee,
+				Type:     f.Type,
+				LimitedP: f.LimitedP,
+			}
 		}
+		h.logger.Infof("[charging] using WEB prices: %d rules from session", len(msgFees))
+	} else {
+		// 无WEB端配置时使用默认费率
+		billingRules := generator.GenerateBillingRules()
+		msgFees = make([]msg.FeeItem, len(billingRules))
+		for i, f := range billingRules {
+			msgFees[i] = msg.FeeItem{
+				Hour:     f.Hour,
+				Min:      f.Min,
+				PowerFee: f.PowerFee,
+				SvcFee:   f.SvcFee,
+				Type:     f.Type,
+				LimitedP: f.LimitedP,
+			}
+		}
+		h.logger.Infof("[charging] using default billing rules: %d items", len(msgFees))
 	}
 
 	reply := &msg.ChargerStartReply{

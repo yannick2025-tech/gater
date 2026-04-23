@@ -181,6 +181,9 @@ func (s *Server) acceptLoop(ctx context.Context) {
 // handleConnection 处理单个连接
 func (s *Server) handleConnection(ctx context.Context, conn *Connection) {
 	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Errorf("[%s] panic in handleConnection: %v", conn.ID, r)
+		}
 		postNo := conn.PostNo
 		conn.Close()
 		s.mu.Lock()

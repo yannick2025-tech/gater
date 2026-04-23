@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/yannick2025-tech/nts-gater/internal/session"
 )
 
 var (
@@ -111,6 +113,88 @@ func serviceFeeForType(_ byte) uint32 {
 
 func byteToBCD(b byte) byte {
 	return ((b / 10) << 4) | (b % 10)
+}
+
+// PricesToFeeItems 将WEB端时段费率配置转为24小时FeeItem列表
+// prices: 时段费率配置（ startTime/endTime/electricityFee/serviceFee）
+// 返回：每个小时一条FeeItem，金额已放大10000倍
+func PricesToFeeItems(prices []session.PriceConfig) []FeeItem {
+	// 构建小时→费率映射
+	type hourFee struct {
+		powerFee uint32 // 放大10000倍
+		svcFee   uint32
+		typ      byte
+	}
+	hourMap := make(map[int]hourFee)
+
+	for _, p := range prices {
+		startH, startM := parseHHMM(p.StartTime)
+		endH, endM := parseHHMM(p.EndTime)
+		powerFee := uint32(p.ElectricityFee * 10000)
+		svcFee := uint32(p.ServiceFee * 10000)
+
+		// 确定时段类型
+		typ := classifyPeakValley(powerFee)
+
+		if endH > startH || (endH == startH && endM > startM) {
+			// 正常时段：如 08:00-12:00
+			for h := startH; h <= endH; h++ {
+				if h == endH && endM == 0 {
+					break
+				}
+				hourMap[h] = hourFee{powerFee: powerFee, svcFee: svcFee, typ: typ}
+			}
+		} else {
+			// 跨天时段：如 22:00-06:00
+			for h := startH; h < 24; h++ {
+				hourMap[h] = hourFee{powerFee: powerFee, svcFee: svcFee, typ: typ}
+			}
+			for h := 0; h <= endH; h++ {
+				if h == endH && endM == 0 {
+					break
+				}
+				hourMap[h] = hourFee{powerFee: powerFee, svcFee: svcFee, typ: typ}
+			}
+		}
+	}
+
+	// 生成24小时列表
+	rules := make([]FeeItem, 0, 24)
+	for h := 0; h < 24; h++ {
+		if f, ok := hourMap[h]; ok {
+			rules = append(rules, FeeItem{
+				Hour:     byteToBCD(byte(h)),
+				Min:      0x00,
+				PowerFee: f.powerFee,
+				SvcFee:   f.svcFee,
+				Type:     f.typ,
+				LimitedP: 0,
+			})
+		}
+	}
+	return rules
+}
+
+// parseHHMM 解析 "HH:mm" 格式
+func parseHHMM(s string) (hour, min int) {
+	if len(s) < 4 {
+		return 0, 0
+	}
+	h, m := 0, 0
+	fmt.Sscanf(s, "%d:%d", &h, &m)
+	return h, m
+}
+
+// classifyPeakValley 根据电费价格分类峰谷类型
+func classifyPeakValley(powerFee uint32) byte {
+	if powerFee >= 14000 {
+		return PeakValleySharp
+	} else if powerFee >= 9000 {
+		return PeakValleyPeak
+	} else if powerFee >= 5000 {
+		return PeakValleyFlat
+	}
+	return PeakValleyValley
 }
 
 // ==================== 充电参数 ====================
