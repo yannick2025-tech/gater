@@ -4,20 +4,23 @@ package handlers
 import (
 	"bytes"
 	"crypto/md5"
+	"encoding/hex"
 	"testing"
 )
 
 func TestBytesToBCD(t *testing.T) {
+	// bytesToBCD 将字节数组转成hex的ASCII字符串表示
+	// 例如: [0x12] → "12" → [0x31, 0x32]
 	tests := []struct {
 		name string
 		in   []byte
 		want []byte
 	}{
-		{"0x00", []byte{0x00}, []byte{0x00, 0x00}},
-		{"0x12", []byte{0x12}, []byte{0x01, 0x02}},
-		{"0xAB", []byte{0xAB}, []byte{0x0A, 0x0B}},
-		{"0xFF", []byte{0xFF}, []byte{0x0F, 0x0F}},
-		{"multi", []byte{0x12, 0x34}, []byte{0x01, 0x02, 0x03, 0x04}},
+		{"0x00", []byte{0x00}, []byte("00")},
+		{"0x12", []byte{0x12}, []byte("12")},
+		{"0xAB", []byte{0xAB}, []byte("AB")},
+		{"0xFF", []byte{0xFF}, []byte("FF")},
+		{"multi", []byte{0x12, 0x34}, []byte("1234")},
 	}
 
 	for _, tt := range tests {
@@ -64,7 +67,7 @@ func TestComputeAuthHash_RoundTrip(t *testing.T) {
 }
 
 func TestComputeAuthHash_AlgorithmSteps(t *testing.T) {
-	// 手动验证算法步骤
+	// 手动验证算法步骤（与computeAuthHash一致）
 	randomKey := []byte{0x01, 0x02, 0x03} // 简化，实际应13字节
 	padded := make([]byte, 13)
 	copy(padded, randomKey) // 补0到13字节
@@ -76,25 +79,31 @@ func TestComputeAuthHash_AlgorithmSteps(t *testing.T) {
 		reversed[i] = padded[12-i]
 	}
 
-	// Step 2: 拼接 13+16=29
+	// Step 2: 固定密钥hex解码为16字节原始数据（与computeAuthHash步骤2一致）
+	fixedKeyDecoded, err := hex.DecodeString(string(fixedKey))
+	if err != nil {
+		t.Fatalf("hex decode fixed key error: %v", err)
+	}
+
+	// Step 3: 拼接 13+16=29
 	combined := make([]byte, 0, 29)
 	combined = append(combined, reversed...)
-	combined = append(combined, fixedKey[:16]...)
+	combined = append(combined, fixedKeyDecoded...)
 
 	if len(combined) != 29 {
 		t.Fatalf("combined length = %d, expected 29", len(combined))
 	}
 
-	// Step 3: BCD
+	// Step 4: BCD
 	bcdBytes := bytesToBCD(combined)
 	if len(bcdBytes) != 58 {
 		t.Fatalf("BCD length = %d, expected 58", len(bcdBytes))
 	}
 
-	// Step 4: MD5
+	// Step 5: MD5
 	hash := md5.Sum(bcdBytes)
 
-	// Step 5: 取前16字节倒序
+	// Step 6: 取前16字节倒序
 	result := make([]byte, 16)
 	for i := 0; i < 16; i++ {
 		result[i] = hash[15-i]
