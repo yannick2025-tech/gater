@@ -235,7 +235,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 
 	// 6.1 异步存档消息到数据库（不影响主流程）
 	go func() {
-		if msg != nil && msgStatus == recorder.StatusSuccess {
+		if msg != nil || hexData != "" {
 			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
 				Timestamp: time.Now(),
 				FuncCode:  header.FuncCode,
@@ -308,8 +308,8 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 				FuncCode:  replyHeader.FuncCode,
 				Direction: types.DirectionReply,
 				Status:    recorder.StatusSuccess,
-				HexData:   replyHex,
-				JSONData:  "",
+				HexData:   replyFrameHex,
+				JSONData:  replyJSON,
 				ErrorMsg:  "",
 			})
 		}()

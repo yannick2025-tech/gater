@@ -465,10 +465,14 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 	// 2. 立即返回成功（不等待后续清理操作）
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
 
-	// 3. 异步执行耗时清理操作（按顺序：停场景 → 关记录器 → 存报告 → 移会话）
+		// 3. 异步执行耗时清理操作（按顺序：停场景 → 关记录器 → 存报告 → 移会话）
 	go func() {
 		if sess, ok := r.sessMgr.GetByPostNo(postNo); ok {
-			// 3.1 先停止场景引擎（防止继续发送报文/轮询running）
+			// 3.1 获取场景名称（用于报告命名），再停止场景引擎
+			testCaseName := ""
+			if sc, ok := r.scenarioEngine.GetScenario(sess.ID); ok {
+				testCaseName = sc.Name()
+			}
 			r.scenarioEngine.RemoveScenario(sess.ID)
 
 			// 3.2 关闭记录器（停止接收新消息，锁定统计）
@@ -491,7 +495,19 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 				}
 			}
 
-			err := report.SaveReport(summary, "XX标准协议", "v1.6.0", sess.GetAuthState().String())
+			// 协议名称拼接测试用例名
+			protocolName := "XX标准协议"
+			if testCaseName != "" {
+				switch testCaseName {
+				case "basic_charging":
+					protocolName = "XX标准协议-基础充电测试"
+				case "sftp_upgrade":
+					protocolName = "XX标准协议-SFTP升级测试"
+				case "config_download":
+					protocolName = "XX标准协议-配置下发测试"
+				}
+			}
+			err := report.SaveReport(summary, protocolName, "v1.6.0", sess.GetAuthState().String())
 			if err != nil {
 				fmt.Printf("[disconnect] save report error for session %s: %v\n", sess.ID, err)
 			} else {

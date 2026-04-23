@@ -81,8 +81,14 @@ const viewMode = computed<'select' | 'detail'>(() => {
   return selectionState.value === 'none' ? 'select' : 'detail'
 })
 
-/** 是否有活跃会话（用于控制"开始测试"按钮） */
-const hasActiveSession = computed(() => selectionState.value === 'active')
+/** 是否有活跃会话且未在测试中（用于控制"开始测试"按钮） */
+const hasActiveSession = computed(() => {
+  if (selectionState.value !== 'active') return false
+  const sess = deviceStore.selectedSession
+  // 已有运行中的测试时，禁用按钮防止重复点击
+  if (sess?.testStatus === 'running') return false
+  return true
+})
 
 /**
  * 测试结果列表：
