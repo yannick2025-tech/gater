@@ -132,16 +132,18 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 	)
 
 	// ===== 0x06 校验 =====
+	sid := ctx.Session.ID
 	cs := ctx.Session.GetChargingState()
 	if cs != nil && cs.ChargingDataCount > 1 {
 		// 1. 电量递增校验
 		if currentElecKWh < cs.LastElec {
 			ctx.Session.AddValidationResult(0x06, "电量递增", false,
 				fmt.Sprintf("currentElec=%.4f < lastElec=%.4f", currentElecKWh, cs.LastElec))
-			h.logger.Warnf("[charging] elec decreased: current=%.4f last=%.4f", currentElecKWh, cs.LastElec)
+			h.logger.Warnf("[%s] [GATER] [0x06] 校验 电量递增 FAIL: current=%.4f < last=%.4f", sid, currentElecKWh, cs.LastElec)
 		} else {
 			ctx.Session.AddValidationResult(0x06, "电量递增", true,
 				fmt.Sprintf("currentElec=%.4f >= lastElec=%.4f", currentElecKWh, cs.LastElec))
+			h.logger.Infof("[%s] [GATER] [0x06] 校验 电量递增 PASS: current=%.4f >= last=%.4f", sid, currentElecKWh, cs.LastElec)
 		}
 
 		// 2. 分时段累计信息校验
@@ -153,9 +155,11 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 			if diff := expectedElecFee - actualElecFee; diff < -1 || diff > 1 {
 				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("电费计算[时段%d]", i), false,
 					fmt.Sprintf("expected=%.2f actual=%.2f", expectedElecFee, actualElecFee))
-				h.logger.Warnf("[charging] elecFee mismatch: expected=%.2f actual=%.2f", expectedElecFee, actualElecFee)
+				h.logger.Warnf("[%s] [GATER] [0x06] 校验 电费计算[时段%d] FAIL: expected=%.2f actual=%.2f", sid, i, expectedElecFee, actualElecFee)
 			} else {
-				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("电费计算[时段%d]", i), true, "")
+				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("电费计算[时段%d]", i), true,
+					fmt.Sprintf("expected=%.2f actual=%.2f", expectedElecFee, actualElecFee))
+				h.logger.Infof("[%s] [GATER] [0x06] 校验 电费计算[时段%d] PASS: expected=%.2f actual=%.2f", sid, i, expectedElecFee, actualElecFee)
 			}
 
 			// 2b. 服务费校验: serviceChargePrice * electricity / 10000 ≈ serviceCharge
@@ -164,9 +168,11 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 			if diff := expectedSvcFee - actualSvcFee; diff < -1 || diff > 1 {
 				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("服务费计算[时段%d]", i), false,
 					fmt.Sprintf("expected=%.2f actual=%.2f", expectedSvcFee, actualSvcFee))
-				h.logger.Warnf("[charging] svcFee mismatch: expected=%.2f actual=%.2f", expectedSvcFee, actualSvcFee)
+				h.logger.Warnf("[%s] [GATER] [0x06] 校验 服务费计算[时段%d] FAIL: expected=%.2f actual=%.2f", sid, i, expectedSvcFee, actualSvcFee)
 			} else {
-				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("服务费计算[时段%d]", i), true, "")
+				ctx.Session.AddValidationResult(0x06, fmt.Sprintf("服务费计算[时段%d]", i), true,
+					fmt.Sprintf("expected=%.2f actual=%.2f", expectedSvcFee, actualSvcFee))
+				h.logger.Infof("[%s] [GATER] [0x06] 校验 服务费计算[时段%d] PASS: expected=%.2f actual=%.2f", sid, i, expectedSvcFee, actualSvcFee)
 			}
 
 			// 2c. 峰谷标识校验（如果有WEB端费率配置）
@@ -175,9 +181,11 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 				if gaterType != item.PeaksValleysFlag {
 					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), false,
 						fmt.Sprintf("gaterType=%d pileType=%d", gaterType, item.PeaksValleysFlag))
-					h.logger.Warnf("[charging] peakValley mismatch: gater=%d pile=%d", gaterType, item.PeaksValleysFlag)
+					h.logger.Warnf("[%s] [GATER] [0x06] 校验 峰谷标识[时段%d] FAIL: gater=%d pile=%d", sid, i, gaterType, item.PeaksValleysFlag)
 				} else {
-					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), true, "")
+					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), true,
+						fmt.Sprintf("gaterType=%d", gaterType))
+					h.logger.Infof("[%s] [GATER] [0x06] 校验 峰谷标识[时段%d] PASS: gater=%d pile=%d", sid, i, gaterType, item.PeaksValleysFlag)
 				}
 			}
 		}
