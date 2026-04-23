@@ -74,6 +74,9 @@ const showMessageModal = ref(false)
 const selectedTestId = ref<number | null>(null)
 const selectedSessionId = ref<string>('')
 
+// 本地测试运行状态（立即响应，不依赖session列表轮询）
+const isTestRunning = ref(false)
+
 // ========== 三态逻辑：none / active / historical ==========
 
 type SelectionState = 'none' | 'active' | 'historical'
@@ -94,8 +97,9 @@ const viewMode = computed<'select' | 'detail'>(() => {
 /** 是否有活跃会话且未在测试中（用于控制"开始测试"按钮） */
 const hasActiveSession = computed(() => {
   if (selectionState.value !== 'active') return false
+  // 本地标记或session列表都标记running时，禁用按钮
+  if (isTestRunning.value) return false
   const sess = deviceStore.selectedSession
-  // 已有运行中的测试时，禁用按钮防止重复点击
   if (sess?.testStatus === 'running') return false
   return true
 })
@@ -105,8 +109,8 @@ const chargingInfo = ref<any>(null)
 const chargingPollTimer = ref<ReturnType<typeof setInterval> | null>(null)
 
 const isCharging = computed(() => {
-  const sess = deviceStore.selectedSession
-  return sess?.testStatus === 'running' && chargingInfo.value?.chargingInfo != null
+  // 本地标记测试运行中即可显示充电面板和结束按钮
+  return isTestRunning.value
 })
 
 const isChargingStopped = computed(() => {
@@ -134,6 +138,10 @@ async function fetchChargingInfo(sessionId: string) {
   try {
     const data = await getChargingInfo(sessionId)
     chargingInfo.value = data
+    // 充电已停止（0x05收到后），标记测试不再运行
+    if (data?.chargingInfo?.isChargingStopped) {
+      isTestRunning.value = false
+    }
   } catch {
     // ignore
   }
@@ -182,14 +190,25 @@ onUnmounted(() => {
 
 function handleSelectSession(session: SessionItem) {
   deviceStore.selectSession(session)
+  // 切换会话时重置本地测试状态
+  isTestRunning.value = session.testStatus === 'running'
+  chargingInfo.value = null
+  stopChargingPolling()
   // 选中历史会话时，加载该会话的测试结果
   if (!session.isOnline) {
     testStore.fetchResultsBySession(session.sessionId)
+  }
+  // 如果选中在线且正在测试的会话，启动充电轮询
+  if (session.isOnline && session.testStatus === 'running') {
+    startChargingPolling(session.sessionId)
   }
 }
 
 function handleBackToList() {
   deviceStore.reset()
+  isTestRunning.value = false
+  chargingInfo.value = null
+  stopChargingPolling()
 }
 
 function handleDisconnect() {
@@ -210,12 +229,15 @@ function handleDisconnect() {
 }
 
 function handleStartTest(data: Record<string, unknown>) {
+  isTestRunning.value = true
   testStore.startTestWithConfig(data).then(() => {
     // 开始测试后启动充电信息轮询
     const sessionId = deviceStore.selectedSession?.sessionId
     if (sessionId) {
       startChargingPolling(sessionId)
     }
+  }).catch(() => {
+    isTestRunning.value = false
   })
 }
 
