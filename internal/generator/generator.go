@@ -115,63 +115,30 @@ func byteToBCD(b byte) byte {
 	return ((b / 10) << 4) | (b % 10)
 }
 
-// PricesToFeeItems 将WEB端时段费率配置转为24小时FeeItem列表
-// prices: 时段费率配置（ startTime/endTime/electricityFee/serviceFee）
-// 返回：每个小时一条FeeItem，金额已放大10000倍
+// PricesToFeeItems 将WEB端时段费率配置转为FeeItem列表
+// prices: 时段费率配置（startTime/endTime/electricityFee/serviceFee）
+// 返回：每个时段一条FeeItem，金额已放大10000倍，FeeNum=时段数
 func PricesToFeeItems(prices []session.PriceConfig) []FeeItem {
-	// 构建小时→费率映射
-	type hourFee struct {
-		powerFee uint32 // 放大10000倍
-		svcFee   uint32
-		typ      byte
-	}
-	hourMap := make(map[int]hourFee)
+	rules := make([]FeeItem, 0, len(prices))
 
 	for _, p := range prices {
 		startH, startM := parseHHMM(p.StartTime)
-		endH, endM := parseHHMM(p.EndTime)
 		powerFee := uint32(p.ElectricityFee * 10000)
 		svcFee := uint32(p.ServiceFee * 10000)
 
 		// 确定时段类型
 		typ := classifyPeakValley(powerFee)
 
-		if endH > startH || (endH == startH && endM > startM) {
-			// 正常时段：如 08:00-12:00
-			for h := startH; h <= endH; h++ {
-				if h == endH && endM == 0 {
-					break
-				}
-				hourMap[h] = hourFee{powerFee: powerFee, svcFee: svcFee, typ: typ}
-			}
-		} else {
-			// 跨天时段：如 22:00-06:00
-			for h := startH; h < 24; h++ {
-				hourMap[h] = hourFee{powerFee: powerFee, svcFee: svcFee, typ: typ}
-			}
-			for h := 0; h <= endH; h++ {
-				if h == endH && endM == 0 {
-					break
-				}
-				hourMap[h] = hourFee{powerFee: powerFee, svcFee: svcFee, typ: typ}
-			}
-		}
+		rules = append(rules, FeeItem{
+			Hour:     byteToBCD(byte(startH)),
+			Min:      byteToBCD(byte(startM)),
+			PowerFee: powerFee,
+			SvcFee:   svcFee,
+			Type:     typ,
+			LimitedP: 0,
+		})
 	}
 
-	// 生成24小时列表
-	rules := make([]FeeItem, 0, 24)
-	for h := 0; h < 24; h++ {
-		if f, ok := hourMap[h]; ok {
-			rules = append(rules, FeeItem{
-				Hour:     byteToBCD(byte(h)),
-				Min:      0x00,
-				PowerFee: f.powerFee,
-				SvcFee:   f.svcFee,
-				Type:     f.typ,
-				LimitedP: 0,
-			})
-		}
-	}
 	return rules
 }
 
