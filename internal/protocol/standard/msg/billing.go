@@ -17,9 +17,10 @@ func (m *BillingRulesDownload) Decode(data []byte) error {
 	m.ListFee = make([]FeeItem, m.FeeNum)
 	for i := 0; i < int(m.FeeNum); i++ {
 		var fi FeeItem
+		var pf, sf []byte
 		fi.Hour, off, _ = ReadByte(data, off); fi.Min, off, _ = ReadByte(data, off)
-		pf, off, _ := ReadBytes(data, off, 3); fi.PowerFee = bytes3ToUint32(pf)
-		sf, off, _ := ReadBytes(data, off, 3); fi.SvcFee = bytes3ToUint32(sf)
+		pf, off, _ = ReadBytes(data, off, 3); fi.PowerFee = bytes3ToUint32(pf)
+		sf, off, _ = ReadBytes(data, off, 3); fi.SvcFee = bytes3ToUint32(sf)
 		fi.Type, off, _ = ReadByte(data, off); fi.LimitedP, off, _ = ReadUint16LE(data, off)
 		m.ListFee[i] = fi
 	}

@@ -335,12 +335,13 @@ func (m *ChargerStopUpload) Decode(data []byte) error {
 	m.FeeModelList = make([]FeeModelItem, m.MessageCount)
 	for i := 0; i < int(m.MessageCount); i++ {
 		var fi FeeModelItem
+		var ep, sp, eq, ef, sf []byte
 		fi.EndTime, off, _ = ReadBCD(data, off, 6)
-		ep, off, _ := ReadBytes(data, off, 3); fi.ElectricPrice = bytes3ToUint32(ep)
-		sp, off, _ := ReadBytes(data, off, 3); fi.ServicePrice = bytes3ToUint32(sp)
-		eq, off, _ := ReadBytes(data, off, 4); fi.ElectricQuantity = binary.LittleEndian.Uint32(eq)
-		ef, off, _ := ReadBytes(data, off, 4); fi.ElectricFee = binary.LittleEndian.Uint32(ef)
-		sf, off, _ := ReadBytes(data, off, 4); fi.ServiceFee = binary.LittleEndian.Uint32(sf)
+		ep, off, _ = ReadBytes(data, off, 3); fi.ElectricPrice = bytes3ToUint32(ep)
+		sp, off, _ = ReadBytes(data, off, 3); fi.ServicePrice = bytes3ToUint32(sp)
+		eq, off, _ = ReadBytes(data, off, 4); fi.ElectricQuantity = binary.LittleEndian.Uint32(eq)
+		ef, off, _ = ReadBytes(data, off, 4); fi.ElectricFee = binary.LittleEndian.Uint32(ef)
+		sf, off, _ = ReadBytes(data, off, 4); fi.ServiceFee = binary.LittleEndian.Uint32(sf)
 		fi.ElectricFlag, off, _ = ReadByte(data, off)
 		m.FeeModelList[i] = fi
 	}
@@ -466,12 +467,13 @@ func (m *ChargingDataUpload) Decode(data []byte) error {
 	m.OverTimeAccumulateInformationList = make([]OverTimeAccumulateItem, m.OverTimeAccumulateInformationCount)
 	for i := 0; i < int(m.OverTimeAccumulateInformationCount); i++ {
 		var item OverTimeAccumulateItem
+		var ep, sp, eq, ef, sf []byte
 		item.EndTime, off, _ = ReadBCD(data, off, 6)
-		ep, off, _ := ReadBytes(data, off, 3); item.ElectricityPrices = bytes3ToUint32(ep)
-		sp, off, _ := ReadBytes(data, off, 3); item.ServiceChargePrice = bytes3ToUint32(sp)
-		eq, off, _ := ReadBytes(data, off, 4); item.Electricity = binary.LittleEndian.Uint32(eq)
-		ef, off, _ := ReadBytes(data, off, 4); item.ElectricityFee = binary.LittleEndian.Uint32(ef)
-		sf, off, _ := ReadBytes(data, off, 4); item.ServiceCharge = binary.LittleEndian.Uint32(sf)
+		ep, off, _ = ReadBytes(data, off, 3); item.ElectricityPrices = bytes3ToUint32(ep)
+		sp, off, _ = ReadBytes(data, off, 3); item.ServiceChargePrice = bytes3ToUint32(sp)
+		eq, off, _ = ReadBytes(data, off, 4); item.Electricity = binary.LittleEndian.Uint32(eq)
+		ef, off, _ = ReadBytes(data, off, 4); item.ElectricityFee = binary.LittleEndian.Uint32(ef)
+		sf, off, _ = ReadBytes(data, off, 4); item.ServiceCharge = binary.LittleEndian.Uint32(sf)
 		item.PeaksValleysFlag, off, _ = ReadByte(data, off)
 		m.OverTimeAccumulateInformationList[i] = item
 	}

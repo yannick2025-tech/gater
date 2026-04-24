@@ -77,8 +77,9 @@ func (m *ParamReportUpload) Decode(data []byte) error {
 	m.ParamList = make([]ParamItem, m.ParamCount)
 	for i := 0; i < int(m.ParamCount); i++ {
 		var item ParamItem
+		var vlen byte
 		item.Seq, off, _ = ReadUint16LE(data, off)
-		vlen, off, _ := ReadByte(data, off)
+		vlen, off, _ = ReadByte(data, off)
 		item.ValueBytes, off, _ = ReadBytes(data, off, int(vlen))
 		m.ParamList[i] = item
 	}
@@ -127,8 +128,9 @@ func (m *ConfigDownloadMsg) Decode(data []byte) error {
 	off := 0
 	for off < len(data) {
 		var item ParamItem
+		var vlen byte
 		item.Seq, off, _ = ReadUint16LE(data, off)
-		vlen, off, _ := ReadByte(data, off)
+		vlen, off, _ = ReadByte(data, off)
 		item.ValueBytes, off, _ = ReadBytes(data, off, int(vlen))
 		m.ParamList = append(m.ParamList, item)
 	}
