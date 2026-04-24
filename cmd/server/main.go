@@ -252,15 +252,40 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	frameHex := fmt.Sprintf("% X", rawFrame)
 	// 构建完整消息JSON：帧头字段 + 消息体字段
 	msgJSON := buildMessageJSON(header, msg)
+	// 构建解密后完整帧：header(12字节) + 解密后数据域
+	var decryptedFrameHex string
+	if header.EncryptFlag == 0x01 {
+		decryptedHeader := make([]byte, 12)
+		decryptedHeader[0] = header.StartByte
+		decryptedHeader[1] = proto.Version()
+		decryptedHeader[2] = header.FuncCode
+		decryptedHeader[3] = byte(header.PostNo)
+		decryptedHeader[4] = byte(header.PostNo >> 8)
+		decryptedHeader[5] = byte(header.PostNo >> 16)
+		decryptedHeader[6] = byte(header.PostNo >> 24)
+		decryptedHeader[7] = header.Charger
+		decryptedHeader[8] = 0x00 // 解密后 encryptFlag=0
+		decryptedHeader[9] = header.Checksum
+		decryptedHeader[10] = byte(len(data))
+		decryptedHeader[11] = byte(len(data) >> 8)
+		decryptedFrame := append(decryptedHeader, data...)
+		decryptedFrameHex = fmt.Sprintf("% X", decryptedFrame)
+	}
 	if msg != nil {
 		logger.Infof("[%s] [Post→GATER] [0x%02X] %s postNo=%d charger=%d status=%s",
 			sess.ID, header.FuncCode, msg.Spec().Name, header.PostNo, header.Charger, msgStatus)
-		logger.Infof("[%s] [Post→GATER] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
+		logger.Infof("[%s] [Post→GATER] [0x%02X] HEX(encrypted): %s", sess.ID, header.FuncCode, frameHex)
+		if header.EncryptFlag == 0x01 {
+			logger.Infof("[%s] [Post→GATER] [0x%02X] HEX(decrypted): %s", sess.ID, header.FuncCode, decryptedFrameHex)
+		}
 		logger.Infof("[%s] [Post→GATER] [0x%02X] JSON: %s", sess.ID, header.FuncCode, msgJSON)
 	} else {
 		logger.Warnf("[%s] [Post→GATER] [0x%02X] decode failed postNo=%d status=%s",
 			sess.ID, header.FuncCode, header.PostNo, msgStatus)
-		logger.Infof("[%s] [Post→GATER] [0x%02X] HEX: %s", sess.ID, header.FuncCode, frameHex)
+		logger.Infof("[%s] [Post→GATER] [0x%02X] HEX(encrypted): %s", sess.ID, header.FuncCode, frameHex)
+		if header.EncryptFlag == 0x01 {
+			logger.Infof("[%s] [Post→GATER] [0x%02X] HEX(decrypted): %s", sess.ID, header.FuncCode, decryptedFrameHex)
+		}
 	}
 
 	// 8. 分发
