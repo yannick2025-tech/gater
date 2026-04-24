@@ -26,14 +26,15 @@
           </td>
           <!-- 时段结束：支持下拉选择 + 手动输入 -->
           <td class="time-cell">
-            <el-time-picker
-              :model-value="parseEndTime(row.endTime)"
-              format="HH:mm"
-              value-format="HH:mm"
+            <el-time-select
+              :model-value="row.endTime"
+              start="00:00"
+              step="01:00"
+              end="23:59"
               placeholder="--:--"
               size="small"
-              :clearable="false"
-              @change="(v: string | undefined) => onEndTimeChange(idx, v)"
+              :editable="true"
+              @change="(v: string) => onEndTimeChange(idx, v)"
             />
           </td>
           <!-- 电费 - 精度4位小数 -->
@@ -93,7 +94,6 @@
 <script setup lang="ts">
 
 import { computed } from 'vue'
-import { ElMessage } from 'element-plus'
 
 const MAX_ROWS = 48
 
@@ -164,11 +164,15 @@ function removeRow(idx: number) {
 function onEndTimeChange(idx: number, val: string | undefined) {
   if (!val) return
 
+  // 校验输入格式：必须为 HH:mm
+  if (!/^\d{1,2}:\d{2}$/.test(val)) {
+    return
+  }
+
   // 校验：结束时间不能早于或等于开始时间
   const startMin = timeToMinutes(props.prices[idx].startTime)
   const endMin = timeToMinutes(val)
   if (endMin <= startMin) {
-    ElMessage.warning('结束时间必须晚于开始时间')
     return
   }
 
@@ -187,15 +191,6 @@ function onEndTimeChange(idx: number, val: string | undefined) {
   }
 
   emit('update:prices', newPrices)
-}
-
-/** 将 "HH:mm" 字符串转为 el-time-picker 可用的 Date 对象 */
-function parseEndTime(val: string): Date | undefined {
-  if (!val) return undefined
-  const [h, m] = val.split(':').map(Number)
-  const d = new Date()
-  d.setHours(h || 0, m || 0, 0, 0)
-  return d
 }
 
 function updateFee(idx: number, field: 'electricityFee' | 'serviceFee', val: number | undefined) {
@@ -237,8 +232,7 @@ function timeToMinutes(t: string): number {
   vertical-align: middle;
 }
 
-.time-cell .el-select,
-.time-cell .el-date-editor {
+.time-cell .el-select {
   width: 110px !important;
 }
 

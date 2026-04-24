@@ -72,6 +72,11 @@ fix: correct auth_test to match actual bytesToBCD and computeAuthHash behavior
 - 列表项可跨行，续行缩进 2 空格对齐
 - 单次 commit 只做一件事，避免混合多种 type
 
+### 1.5 提交约束
+
+- **禁止自动提交**：完成代码变更后，只生成 commit message 并展示给用户，**绝不能自动执行 `git commit`**，必须等待用户确认后才可提交
+- 用户说"生成 git message"或"请生成 commit message"时，只输出 message 内容，不执行 git 操作
+
 ---
 
 ## 2. 代码风格
