@@ -24,16 +24,17 @@
               :disabled="true"
             />
           </td>
-          <!-- 时段结束：支持选择 + 手动输入任意时间 -->
+          <!-- 时段结束：支持下拉选择 + 手动输入任意时间 -->
           <td class="time-cell">
-            <el-time-picker
+            <el-time-select
               :model-value="row.endTime"
-              format="HH:mm"
-              value-format="HH:mm"
+              start="00:00"
+              step="00:30"
+              end="23:59"
               placeholder="--:--"
               size="small"
-              :clearable="false"
-              @change="(v: string | undefined) => onEndTimeChange(idx, v)"
+              :editable="true"
+              @change="(v: string) => onEndTimeChange(idx, v)"
             />
           </td>
           <!-- 电费 - 精度4位小数 -->
@@ -231,8 +232,7 @@ function timeToMinutes(t: string): number {
   vertical-align: middle;
 }
 
-.time-cell .el-select,
-.time-cell .el-date-editor {
+.time-cell .el-select {
   width: 110px !important;
 }
 
