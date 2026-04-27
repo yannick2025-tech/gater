@@ -79,7 +79,7 @@ func main() {
 
 	// HTTP服务器
 	gin.SetMode(gin.ReleaseMode)
-	router := api.NewRouter(sessMgr, scenarioEngine, logger)
+	router := api.NewRouter(sessMgr, scenarioEngine, srv, logger)
 
 	// Server 1: API 接口（内网端口，仅 /api/* 路由）
 	apiEngine := gin.Default()

@@ -230,19 +230,26 @@ function handleBackToList() {
 }
 
 function handleDisconnect() {
-  // 1. 先停止轮询，标记测试为已完成
-  if (testStore.currentStatus?.sessionId) {
-    testStore.markTestCompleted(testStore.currentStatus.sessionId, 'completed')
-  }
+  // 1. 停止所有轮询
   testStore.stopPolling()
+  stopChargingPolling()
 
-  // 2. 调用后端断开连接
+  // 2. 标记测试为已完成（优先使用currentStatus，回退到selectedSession）
+  const sessionId = testStore.currentStatus?.sessionId || deviceStore.selectedSession?.sessionId
+  if (sessionId) {
+    testStore.markTestCompleted(sessionId, 'completed')
+  }
+
+  // 3. 重置测试运行状态
+  isTestRunning.value = false
+
+  // 4. 调用后端断开连接
   const gunNumber = deviceStore.deviceInfo.gunNumber || deviceStore.selectedSession?.gunNumber || ''
   if (gunNumber) {
     deviceStore.disconnect(gunNumber).catch(() => {})
   }
 
-  // 3. 刷新会话列表
+  // 5. 刷新会话列表
   deviceStore.fetchSessions()
 }
 
