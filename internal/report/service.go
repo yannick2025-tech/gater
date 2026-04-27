@@ -6,20 +6,56 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/yannick2025-tech/nts-gater/internal/database"
 	"github.com/yannick2025-tech/nts-gater/internal/model"
 	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 )
 
-// SaveReport 保存测试报告到数据库（会话结束时调用）
+// CreateRunningReport 在测试开始时插入一条 running 占位记录到数据库
+func CreateRunningReport(sessionID string, postNo uint32, testCase string) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	now := time.Now()
+
+	protocolName := "XX标准协议"
+	switch testCase {
+	case "basic_charging":
+		protocolName = "XX标准协议-基础充电测试"
+	case "sftp_upgrade":
+		protocolName = "XX标准协议-SFTP升级测试"
+	case "config_download":
+		protocolName = "XX标准协议-配置下发测试"
+	}
+
+	report := &model.TestReport{
+		SessionID:     sessionID,
+		PostNo:        postNo,
+		ProtocolName:  protocolName,
+		ProtocolVer:   "v1.6.0",
+		StartTime:     now,
+		EndTime:       time.Time{},
+		Status:        "running",
+		AuthState:     "",
+	}
+	if err := db.Create(report).Error; err != nil {
+		return fmt.Errorf("create running report failed: %w", err)
+	}
+	return nil
+}
+
+// SaveReport 保存/更新测试报告到数据库（会话结束时调用）
+// 使用 UPSERT 语义：如果 startTest 已创建了 running 占位记录，则更新为 completed；否则新建
 func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolVer string, authState string) error {
 	db := database.GetDB()
 	if db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// 1. 保存测试报告
+	// 1. UPSERT 测试报告（SessionID 有唯一索引，Clash 时 Update，否则 Insert）
 	report := &model.TestReport{
 		SessionID:     summary.SessionID,
 		PostNo:        summary.PostNo,
@@ -37,7 +73,17 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 		AuthState:     authState,
 	}
 
-	if err := db.Create(report).Error; err != nil {
+	// 使用 Save 实现 UPSERT（SessionID 有唯一索引，Clash 时 Update，否则 Insert）
+	if err := db.Clauses(
+		clause.OnConflict{
+			Columns: []clause.Column{{Name: "session_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"post_no", "protocol_name", "protocol_ver", "start_time",
+				"end_time", "duration_ms", "total_messages", "success_total",
+				"fail_total", "success_rate", "is_pass", "status", "auth_state",
+			}),
+		},
+	).Create(report).Error; err != nil {
 		return fmt.Errorf("save test report failed: %w", err)
 	}
 

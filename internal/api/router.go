@@ -575,6 +575,9 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
+	// 立即写入 running 占位记录到数据库，确保前端刷新/重入时能查到
+	report.CreateRunningReport(sess.ID, sess.PostNo, req.TestCase)
+
 	result := sc.Result()
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
