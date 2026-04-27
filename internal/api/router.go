@@ -575,18 +575,24 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
+	// 生成测试场景UUID（同一session下可有多个场景：充电/SFTP升级/配置下发）
+	scenarioID := report.GenerateScenarioID()
+
 	// 立即写入 running 占位记录到数据库，确保前端刷新/重入时能查到
-	report.CreateRunningReport(sess.ID, sess.PostNo, req.TestCase)
+	if err := report.CreateRunningReport(sess.ID, sess.PostNo, req.TestCase, scenarioID); err != nil {
+		fmt.Printf("[startTest] create running report warning: %v\n", err)
+	}
 
 	result := sc.Result()
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"sessionId": sess.ID,
-			"status":    string(result.State),
-			"testCase":  req.TestCase,
-			"progress":  result.Progress,
-			"stepName":  result.StepName,
+			"sessionId":   sess.ID,
+			"scenarioId":  scenarioID,
+			"status":      string(result.State),
+			"testCase":    req.TestCase,
+			"progress":    result.Progress,
+			"stepName":    result.StepName,
 		},
 	})
 }
@@ -629,10 +635,21 @@ func (r *Router) stopTest(c *gin.Context) {
 		return
 	}
 
+	// 标记该会话下最新的 running 场景为 completed（用户主动结束测试）
+	go func() {
+		reports, _ := report.GetTestReportsBySessionID(req.SessionID)
+		for i := len(reports) - 1; i >= 0; i-- {
+			if reports[i].Status == "running" {
+				report.UpdateScenarioStatus(reports[i].ScenarioID, "completed")
+				break // 只更新最新的一条 running 记录
+			}
+		}
+	}()
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"sessionId":      req.SessionID,
+			"sessionId":        req.SessionID,
 			"platformStopTime": now.Format("2006-01-02 15:04:05.000"),
 		},
 	})

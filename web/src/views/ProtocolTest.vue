@@ -2,8 +2,8 @@
   <div class="protocol-test-page">
     <!-- 第1块：会话选择 / 设备信息（双模式） -->
     <DeviceInfoBar
-      :gun-number="deviceStore.deviceInfo.gunNumber"
-      :is-online="deviceStore.deviceInfo.isOnline"
+      :gun-number="disconnectedSession?.gunNumber || deviceStore.deviceInfo.gunNumber"
+      :is-online="isDisconnected ? false : deviceStore.deviceInfo.isOnline"
       :protocol-name="deviceStore.deviceInfo.protocolName"
       :protocol-version="deviceStore.deviceInfo.protocolVersion"
       :sessions="deviceStore.sessionList"
@@ -14,11 +14,11 @@
       @back-to-list="handleBackToList"
     />
 
-    <!-- 第2块：测试配置（选中会话后始终显示；历史会话时置灰只读） -->
-    <div class="section-wrapper" v-if="selectionState !== 'none'">
+    <!-- 第2块：测试配置（选中活跃会话且未断开时显示；历史/断开后隐藏） -->
+    <div class="section-wrapper" v-if="selectionState === 'active'">
       <TestConfig
         :can-start-test="hasActiveSession"
-        :is-historical="selectionState === 'historical'"
+        :is-historical="false"
         :is-charging="isCharging"
         :is-charging-stopped="isChargingStopped"
         @start="handleStartTest"
@@ -31,7 +31,7 @@
       <ChargingInfoPanel :info="chargingInfo" />
     </div>
 
-    <!-- 第3块：测试结果（选中会话后显示） -->
+    <!-- 第3块：测试结果（选中会话或断开后显示当前会话的结果） -->
     <div class="section-wrapper" v-if="selectionState !== 'none'">
       <TestResults
         :results="filteredResults"
@@ -76,22 +76,27 @@ const selectedSessionId = ref<string>('')
 
 // 本地测试运行状态（立即响应，不依赖session列表轮询）
 const isTestRunning = ref(false)
+// 断开连接后保持显示当前会话的测试结果（不退回到会话列表）
+const isDisconnected = ref(false)
+const disconnectedSession = ref<SessionItem | null>(null)
 
-// ========== 三态逻辑：none / active / historical ==========
+// ========== 三态逻辑：none / active / historical / disconnected ==========
 
-type SelectionState = 'none' | 'active' | 'historical'
+type SelectionState = 'none' | 'active' | 'historical' | 'disconnected'
 
 /** 当前选择状态 */
 const selectionState = computed<SelectionState>(() => {
+  if (isDisconnected.value && disconnectedSession.value) return 'disconnected'
   const sess = deviceStore.selectedSession
   if (!sess) return 'none'
   if (sess.isOnline) return 'active'
   return 'historical'
 })
 
-/** DeviceInfoBar 的显示模式 */
+/** DeviceInfoBar 的显示模式：断开后也显示 detail 模式，不显示会话列表 */
 const viewMode = computed<'select' | 'detail'>(() => {
-  return selectionState.value === 'none' ? 'select' : 'detail'
+  if (selectionState.value === 'none') return 'select'
+  return 'detail'  // active / historical / disconnected 都用 detail 模式
 })
 
 /** 是否有活跃会话且未在测试中（用于控制"开始测试"按钮） */
@@ -160,9 +165,14 @@ async function handleStopTest() {
 
 /**
  * 测试结果列表：
- * 始终只显示当前选中会话对应的测试记录，无论活跃还是历史
+ * - 断开后：显示当前断开会话的所有测试场景记录
+ * - 其他：始终只显示当前选中会话对应的测试记录
  */
 const filteredResults = computed(() => {
+  // 断开状态：使用保存的断开会话信息过滤
+  if (isDisconnected.value && disconnectedSession.value) {
+    return testStore.testResults.filter(r => r.sessionId === disconnectedSession.value!.sessionId)
+  }
   const sess = deviceStore.selectedSession
   if (!sess) return []
   return testStore.testResults.filter(r => r.sessionId === sess.sessionId)
@@ -202,14 +212,15 @@ onUnmounted(() => {
 
 function handleSelectSession(session: SessionItem) {
   deviceStore.selectSession(session)
+  // 选择新会话时清除断开状态
+  isDisconnected.value = false
+  disconnectedSession.value = null
   // 切换会话时重置本地测试状态
   isTestRunning.value = session.testStatus === 'running'
   chargingInfo.value = null
   stopChargingPolling()
-  // 选中历史会话时，加载该会话的测试结果
-  if (!session.isOnline) {
-    testStore.fetchResultsBySession(session.sessionId)
-  }
+  // 选中会话时，加载该会话的测试结果
+  testStore.fetchResultsBySession(session.sessionId)
   // 如果选中在线且正在测试的会话，启动充电轮询
   if (session.isOnline && session.testStatus === 'running') {
     startChargingPolling(session.sessionId)
@@ -219,31 +230,40 @@ function handleSelectSession(session: SessionItem) {
 function handleBackToList() {
   deviceStore.reset()
   isTestRunning.value = false
+  isDisconnected.value = false
+  disconnectedSession.value = null
   chargingInfo.value = null
   stopChargingPolling()
 }
 
 function handleDisconnect() {
-  // 1. 停止所有轮询
+  // 1. 保存当前会话信息（断开后用于显示测试结果）
+  const sess = deviceStore.selectedSession
+  if (sess) {
+    disconnectedSession.value = { ...sess }
+  }
+  isDisconnected.value = true
+
+  // 2. 停止所有轮询
   testStore.stopPolling()
   stopChargingPolling()
 
-  // 2. 标记测试为已完成（优先使用currentStatus，回退到selectedSession）
+  // 3. 标记测试为已完成（优先使用currentStatus，回退到selectedSession）
   const sessionId = testStore.currentStatus?.sessionId || deviceStore.selectedSession?.sessionId
   if (sessionId) {
-    testStore.markTestCompleted(sessionId, 'completed')
+    testStore.markTestCompleted(sessionId, 'completed', testStore.currentScenarioId || undefined)
   }
 
-  // 3. 重置测试运行状态
+  // 4. 重置测试运行状态
   isTestRunning.value = false
 
-  // 4. 调用后端断开连接
+  // 5. 调用后端断开连接
   const gunNumber = deviceStore.deviceInfo.gunNumber || deviceStore.selectedSession?.gunNumber || ''
   if (gunNumber) {
     deviceStore.disconnect(gunNumber).catch(() => {})
   }
 
-  // 5. 刷新会话列表
+  // 6. 刷新会话列表（后台更新，不切换到会话列表视图）
   deviceStore.fetchSessions()
 }
 

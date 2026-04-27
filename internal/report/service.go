@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -13,8 +15,13 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 )
 
+// GenerateScenarioID 生成测试场景UUID（每次startTest调用一次）
+func GenerateScenarioID() string {
+	return uuid.New().String()
+}
+
 // CreateRunningReport 在测试开始时插入一条 running 占位记录到数据库
-func CreateRunningReport(sessionID string, postNo uint32, testCase string) error {
+func CreateRunningReport(sessionID string, postNo uint32, testCase string, scenarioID string) error {
 	db := database.GetDB()
 	if db == nil {
 		return fmt.Errorf("database not initialized")
@@ -33,6 +40,7 @@ func CreateRunningReport(sessionID string, postNo uint32, testCase string) error
 
 	report := &model.TestReport{
 		SessionID:     sessionID,
+		ScenarioID:    scenarioID,
 		PostNo:        postNo,
 		ProtocolName:  protocolName,
 		ProtocolVer:   "v1.6.0",
@@ -47,8 +55,41 @@ func CreateRunningReport(sessionID string, postNo uint32, testCase string) error
 	return nil
 }
 
-// SaveReport 保存/更新测试报告到数据库（会话结束时调用）
-// 使用 UPSERT 语义：如果 startTest 已创建了 running 占位记录，则更新为 completed；否则新建
+// UpdateScenarioStatus 更新指定测试场景的状态（如 stopTest 时标记为 completed）
+func UpdateScenarioStatus(scenarioID string, status string) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	now := time.Now()
+	updates := map[string]interface{}{"status": status}
+	if status == "completed" {
+		updates["end_time"] = now
+	}
+	result := db.Model(&model.TestReport{}).Where("scenario_id = ?", scenarioID).Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("update scenario status failed: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("scenario not found: %s", scenarioID)
+	}
+	return nil
+}
+
+// GetTestReportsBySessionID 获取某会话下的所有测试场景报告（一个会话可有多个场景）
+func GetTestReportsBySessionID(sessionID string) ([]model.TestReport, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var reports []model.TestReport
+	if err := db.Where("session_id = ?", sessionID).Order("start_time ASC").Find(&reports).Error; err != nil {
+		return nil, err
+	}
+	return reports, nil
+}
+// SaveReport 保存/更新测试报告到数据库（会话断开时调用）
+// 将该会话下所有 running 状态的场景报告更新为 completed
 // rec 参数可选：传入时将 Recorder 中所有报文记录批量刷写到 message_archives 表（兜底补偿）
 func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolVer string, authState string, rec *recorder.SessionRecorder) error {
 	db := database.GetDB()
@@ -56,37 +97,25 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 		return fmt.Errorf("database not initialized")
 	}
 
-	// 1. UPSERT 测试报告（SessionID 有唯一索引，Clash 时 Update，否则 Insert）
-	report := &model.TestReport{
-		SessionID:     summary.SessionID,
-		PostNo:        summary.PostNo,
-		ProtocolName:  protocolName,
-		ProtocolVer:   protocolVer,
-		StartTime:     summary.StartTime,
-		EndTime:       summary.EndTime,
-		DurationMs:    summary.Duration.Milliseconds(),
-		TotalMessages: summary.TotalMessages,
-		SuccessTotal:  summary.SuccessTotal,
-		FailTotal:     summary.FailTotal,
-		SuccessRate:   summary.SuccessRate,
-		IsPass:        summary.IsPass,
-		Status:        "completed",
-		AuthState:     authState,
+	// 1. 批量更新该会话下所有 running 状态的报告为 completed
+	updates := map[string]interface{}{
+		"end_time":     summary.EndTime,
+		"duration_ms":  summary.Duration.Milliseconds(),
+		"total_messages": summary.TotalMessages,
+		"success_total":  summary.SuccessTotal,
+		"fail_total":     summary.FailTotal,
+		"success_rate":   summary.SuccessRate,
+		"is_pass":        summary.IsPass,
+		"status":         "completed",
+		"auth_state":     authState,
 	}
-
-	// 使用 Save 实现 UPSERT（SessionID 有唯一索引，Clash 时 Update，否则 Insert）
-	if err := db.Clauses(
-		clause.OnConflict{
-			Columns: []clause.Column{{Name: "session_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{
-				"post_no", "protocol_name", "protocol_ver", "start_time",
-				"end_time", "duration_ms", "total_messages", "success_total",
-				"fail_total", "success_rate", "is_pass", "status", "auth_state",
-			}),
-		},
-	).Create(report).Error; err != nil {
-		return fmt.Errorf("save test report failed: %w", err)
+	result := db.Model(&model.TestReport{}).
+		Where("session_id = ? AND status = 'running'", summary.SessionID).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("save test report failed: %w", result.Error)
 	}
+	fmt.Printf("[SaveReport] updated %d scenario records for session %s to completed\n", result.RowsAffected, summary.SessionID)
 
 	// 2. 保存功能码统计
 	for _, stat := range summary.FuncCodeStats {

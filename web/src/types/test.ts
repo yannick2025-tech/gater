@@ -31,6 +31,7 @@ export interface ConfigItem {
 export interface TestResult {
   id: number
   sessionId: string
+  scenarioId: string   // 测试场景ID（每次startTest生成UUID，同一session可有多个场景）
   postNo: number
   protocolName: string
   startTime: string
@@ -70,6 +71,7 @@ export interface TestDetail {
 
 export interface TestStatus {
   sessionId: string
+  scenarioId: string
   status: string
   progress: number
   stepName: string

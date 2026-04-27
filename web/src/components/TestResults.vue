@@ -13,7 +13,17 @@
       :header-cell-style="{ background: '#fafafa', color: '#666', fontWeight: '500' }"
       empty-text="暂无测试结果"
     >
-      <el-table-column prop="protocolName" label="测试用例名称" min-width="160">
+      <el-table-column prop="sessionId" label="会话ID" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span class="id-cell">{{ row.sessionId || '--' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="scenarioId" label="测试场景ID" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span class="id-cell">{{ row.scenarioId || '--' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="protocolName" label="测试用例名称" min-width="140">
         <template #default="{ row }">
           <span>{{ getScenarioName(row.protocolName) }}</span>
         </template>
@@ -159,6 +169,12 @@ function getScenarioName(key: string): string {
 
 .running-tag {
   animation: pulse 1.5s ease-in-out infinite;
+}
+
+.id-cell {
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+  color: #606266;
 }
 
 @keyframes pulse {

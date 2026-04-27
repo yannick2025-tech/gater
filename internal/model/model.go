@@ -18,7 +18,8 @@ type BaseModel struct {
 // TestReport 测试报告
 type TestReport struct {
 	BaseModel
-	SessionID     string  `gorm:"uniqueIndex;size:64;not null" json:"sessionId"`
+	SessionID     string  `gorm:"uniqueIndex:idx_session_scenario;size:64;not null" json:"sessionId"`
+	ScenarioID    string  `gorm:"uniqueIndex:idx_session_scenario;size:64;not null" json:"scenarioId"` // 每次startTest生成的UUID，同一session可有多个scenario
 	PostNo        uint32  `gorm:"index;not null" json:"postNo"`
 	ProtocolName  string  `gorm:"size:64" json:"protocolName"`
 	ProtocolVer   string  `gorm:"size:16" json:"protocolVersion"`
@@ -31,7 +32,7 @@ type TestReport struct {
 	SuccessRate   float64 `json:"successRate"`        // 成功率(%)
 	IsPass        bool    `json:"isPass"`             // 测试是否通过
 	PDFApath     string  `gorm:"size:512" json:"pdfPath,omitempty"` // PDF文件路径
-	Status        string  `gorm:"size:32;default:active" json:"status"` // active/completed/archived
+	Status        string  `gorm:"size:32;default:running" json:"status"` // running/completed/archived
 	AuthState     string  `gorm:"size:32;default:none" json:"authState"` // none/pending/authenticated (断开前的最终认证状态)
 }
 

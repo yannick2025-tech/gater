@@ -14,6 +14,7 @@ export const useTestStore = defineStore('test', () => {
   const loading = ref(false)
   const currentStatus = ref<TestStatus | null>(null)
   const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+  const currentScenarioId = ref<string>('')  // 当前正在运行的测试场景ID
 
   async function fetchResults(page = 1) {
     loading.value = true
@@ -32,12 +33,14 @@ export const useTestStore = defineStore('test', () => {
     try {
       const data = await startTestApi(testCase, gunNumber, params)
       currentStatus.value = data
+      currentScenarioId.value = data.scenarioId || ''
 
       // 立即插入一条运行中记录到结果列表（让用户看到测试已开始）
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
       const runningRecord: Record<string, any> = {
         id: Date.now(),
         sessionId: data.sessionId,
+        scenarioId: data.scenarioId || '',
         protocolName: testCase,
         startTime: now,
         endTime: '',
@@ -76,12 +79,14 @@ export const useTestStore = defineStore('test', () => {
     try {
       const data = await startTestApi(testCase, sessionId, params)
       currentStatus.value = data
+      currentScenarioId.value = data.scenarioId || ''
 
       // 立即插入一条运行中记录到结果列表
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
       const runningRecord: Record<string, any> = {
         id: Date.now(),
         sessionId: sessionId,
+        scenarioId: data.scenarioId || '',
         protocolName: testCase,
         startTime: now,
         endTime: '',
@@ -127,13 +132,13 @@ export const useTestStore = defineStore('test', () => {
         currentStatus.value = data
         if (data.status !== 'running') {
           stopPolling()
-          markTestCompleted(sessionId, data.status)
+          markTestCompleted(sessionId, data.status === 'completed' ? 'completed' : 'completed', currentScenarioId.value || undefined)
           fetchResults(1)
         }
       } catch {
-        // session不存在或已结束，标记为失败
+        // session不存在或已结束，标记为完成
         stopPolling()
-        markTestCompleted(sessionId, 'failed')
+        markTestCompleted(sessionId, 'completed', currentScenarioId.value || undefined)
         fetchResults(1)
       }
     }, 3000)
@@ -146,9 +151,13 @@ export const useTestStore = defineStore('test', () => {
     }
   }
 
-  // 标记测试记录为已完成（断开连接/超时时调用）
-  function markTestCompleted(sessionId: string, finalStatus: string) {
-    const record = testResults.value.find(r => r.sessionId === sessionId && r.status === 'running')
+  // 标记测试记录为已完成（断开连接/停止测试时调用）
+  // 优先按 scenarioId 精确匹配（同一 session 可能有多个场景），回退到 sessionId
+  function markTestCompleted(sessionId: string, finalStatus: string, scenarioId?: string) {
+    const record = testResults.value.find(r => {
+      if (scenarioId) return r.scenarioId === scenarioId && r.status === 'running'
+      return r.sessionId === sessionId && r.status === 'running'
+    })
     if (record) {
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
       record.status = finalStatus
@@ -160,7 +169,7 @@ export const useTestStore = defineStore('test', () => {
     }
   }
 
-  /** 按sessionId加载该会话的历史测试结果（用于历史会话查看报告） */
+  /** 按sessionId加载该会话的所有测试场景结果（用于历史/断开后查看报告） */
   async function fetchResultsBySession(sessionId: string) {
     loading.value = true
     try {
@@ -177,7 +186,7 @@ export const useTestStore = defineStore('test', () => {
   fetchResults(1)
 
   return {
-    testResults, total, currentPage, pageSize, loading, currentStatus,
+    testResults, total, currentPage, pageSize, loading, currentStatus, currentScenarioId,
     fetchResults, fetchResultsBySession, startTest, startTestWithConfig, startConfigTest, exportReport,
     startPolling, stopPolling, markTestCompleted,
   }
