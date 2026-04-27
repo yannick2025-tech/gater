@@ -33,7 +33,8 @@
               end="23:59"
               placeholder="--:--"
               size="small"
-              :editable="true"
+              :editable="!disabled"
+              :disabled="disabled"
               @change="(v: string) => onEndTimeChange(idx, v)"
             />
           </td>
@@ -46,6 +47,7 @@
               controls-position="right"
               size="small"
               style="width: 130px"
+              :disabled="disabled"
               @change="(v: number | undefined) => updateFee(idx, 'electricityFee', v)"
             />
           </td>
@@ -58,6 +60,7 @@
               controls-position="right"
               size="small"
               style="width: 130px"
+              :disabled="disabled"
               @change="(v: number | undefined) => updateFee(idx, 'serviceFee', v)"
             />
           </td>
@@ -66,7 +69,7 @@
               type="danger"
               link
               size="small"
-              :disabled="prices.length <= 1"
+              :disabled="disabled || prices.length <= 1"
               @click="removeRow(idx)"
             >
               删除
@@ -82,7 +85,7 @@
     <div class="add-row-btn">
       <el-button
         type="primary" plain size="small"
-        :disabled="!canAddRow || prices.length >= MAX_ROWS"
+        :disabled="disabled || !canAddRow || prices.length >= MAX_ROWS"
         @click="addRow"
       >
         + 添加时段
@@ -106,6 +109,7 @@ export interface PriceRow {
 
 const props = defineProps<{
   prices: PriceRow[]
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{

@@ -79,7 +79,7 @@
         <div class="quota-box">
           <div class="quota-title">充电限制配额</div>
           <div class="quota-body">
-            <PriceTable v-model:prices="formData.prices" />
+            <PriceTable v-model:prices="formData.prices" :disabled="isCharging" />
           </div>
         </div>
       </template>
