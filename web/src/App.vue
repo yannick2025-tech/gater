@@ -1,6 +1,6 @@
 <template>
   <div class="app-layout">
-    <Sidebar />
+    <Sidebar @select-submenu="handleSelectSubmenu" />
     <main class="main-content">
       <router-view />
     </main>
@@ -8,7 +8,15 @@
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import Sidebar from '@/components/Sidebar.vue'
+
+const router = useRouter()
+
+/** 点击侧边栏二级菜单 → 跳转到首页（显示所有历史TCP会话列表） */
+function handleSelectSubmenu(_key: string) {
+  router.push({ name: 'ProtocolTest' })
+}
 </script>
 
 <style>
