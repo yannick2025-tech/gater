@@ -54,6 +54,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useDeviceStore } from '@/stores/device'
 import { useTestStore } from '@/stores/test'
@@ -65,6 +66,9 @@ import TestDetailModal from '@/components/TestDetailModal.vue'
 import MessageViewModal from '@/components/MessageViewModal.vue'
 import ChargingInfoPanel from '@/components/ChargingInfoPanel.vue'
 import { stopTest as stopTestApi, getChargingInfo } from '@/api/test'
+
+const router = useRouter()
+const route = useRoute()
 
 const deviceStore = useDeviceStore()
 const testStore = useTestStore()
@@ -188,10 +192,32 @@ watch(() => deviceStore.selectedSession, (sess) => {
   }
 })
 
-// 页面挂载时启动会话列表轮询，并自动恢复正在测试的会话
+// 页面挂载时启动会话列表轮询，并根据URL参数或运行状态恢复选中会话
 onMounted(async () => {
   await deviceStore.fetchSessions()
-  // 刷新后恢复：自动选中正在测试的在线会话
+
+  // 优先级1：URL中有 sessionId 参数（用户直接访问 /session/:id 或刷新页面）
+  const urlSessionId = route.params.sessionId as string
+  if (urlSessionId) {
+    const matchedSession = deviceStore.sessionList.find(
+      (s: SessionItem) => s.sessionId === urlSessionId
+    )
+    if (matchedSession) {
+      handleSelectSession(matchedSession)
+      // 如果是已断开的历史会话，标记为 disconnected 状态以保持详情视图
+      if (!matchedSession.isOnline) {
+        isDisconnected.value = true
+        disconnectedSession.value = { ...matchedSession }
+      }
+    } else {
+      // URL中的sessionId在列表中未找到（可能已被清理），回退到列表页
+      router.replace('/')
+    }
+    deviceStore.startSessionPolling(10000)
+    return
+  }
+
+  // 优先级2：自动选中正在测试的在线会话（首页默认行为）
   const runningSession = deviceStore.sessionList.find(
     (s: SessionItem) => s.isOnline && s.testStatus === 'running'
   )
@@ -225,6 +251,8 @@ function handleSelectSession(session: SessionItem) {
   if (session.isOnline && session.testStatus === 'running') {
     startChargingPolling(session.sessionId)
   }
+  // ★ 同步URL（支持浏览器前进后退、分享链接、刷新恢复）
+  router.push({ name: 'SessionDetail', params: { sessionId: session.sessionId } })
 }
 
 function handleBackToList() {
@@ -234,6 +262,8 @@ function handleBackToList() {
   disconnectedSession.value = null
   chargingInfo.value = null
   stopChargingPolling()
+  // ★ 回到首页（URL同步为 /）
+  router.replace({ name: 'ProtocolTest' })
 }
 
 function handleDisconnect() {
@@ -265,6 +295,11 @@ function handleDisconnect() {
 
   // 6. 刷新会话列表（后台更新，不切换到会话列表视图）
   deviceStore.fetchSessions()
+
+  // ★ 7. 确保URL保持为 /session/:id（刷新后仍能恢复到此会话的详情视图）
+  if (sessionId && route.params.sessionId !== sessionId) {
+    router.replace({ name: 'SessionDetail', params: { sessionId } })
+  }
 }
 
 function handleStartTest(data: Record<string, unknown>) {
