@@ -160,17 +160,11 @@ async function handleStopTest() {
 
 /**
  * 测试结果列表：
- * - 活跃会话：显示全部结果（含运行中的）
- * - 历史会话：仅显示该session的结果
+ * 始终只显示当前选中会话对应的测试记录，无论活跃还是历史
  */
 const filteredResults = computed(() => {
   const sess = deviceStore.selectedSession
   if (!sess) return []
-  if (selectionState.value === 'active') {
-    // 活跃会话：返回全部结果
-    return testStore.testResults
-  }
-  // 历史会话：仅过滤该sessionId的记录
   return testStore.testResults.filter(r => r.sessionId === sess.sessionId)
 })
 
