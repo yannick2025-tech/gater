@@ -161,6 +161,12 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		return
 	}
 
+	// 1.0 版本不匹配仅记录日志，不做强校验（协议持续升级，后续再考虑多版本兼容）
+	if header.Version != proto.Version() {
+		logger.Infof("[%s] protocol version mismatch: device=0x%02X gater=0x%02X (continuing)",
+			conn.ID, header.Version, proto.Version())
+	}
+
 	// 1.1 充电桩编号校验：协议规定为8位数字（10000000~99999999）
 	if postNoErr := frameValidator.ValidatePostNo(header.PostNo); postNoErr != nil {
 		logger.Errorf("[%s] %s", conn.ID, postNoErr.Message)

@@ -49,10 +49,8 @@ func (v *FrameValidator) ValidateHeader(header types.MessageHeader) *Error {
 	}
 
 	if header.Version != v.proto.Version() {
-		return &Error{
-			Code:    "INVALID_VERSION",
-			Message: fmt.Sprintf("version 0x%02X, expected 0x%02X", header.Version, v.proto.Version()),
-		}
+		// 版本不匹配不再强校验，协议会持续升级，后续再考虑多版本兼容方案
+		_ = header.Version // 占位，调用方自行决定是否记录日志
 	}
 
 	if header.EncryptFlag != 0x00 && header.EncryptFlag != 0x01 {
