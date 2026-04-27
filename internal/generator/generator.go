@@ -122,7 +122,7 @@ func PricesToFeeItems(prices []session.PriceConfig) []FeeItem {
 	rules := make([]FeeItem, 0, len(prices))
 
 	for _, p := range prices {
-		startH, startM := parseHHMM(p.StartTime)
+		endH, endM := parseHHMM(p.EndTime)
 		powerFee := uint32(p.ElectricityFee * 10000)
 		svcFee := uint32(p.ServiceFee * 10000)
 
@@ -130,8 +130,8 @@ func PricesToFeeItems(prices []session.PriceConfig) []FeeItem {
 		typ := classifyPeakValley(powerFee)
 
 		rules = append(rules, FeeItem{
-			Hour:     byteToBCD(byte(startH)),
-			Min:      byteToBCD(byte(startM)),
+			Hour:     byteToBCD(byte(endH)),
+			Min:      byteToBCD(byte(endM)),
 			PowerFee: powerFee,
 			SvcFee:   svcFee,
 			Type:     typ,
