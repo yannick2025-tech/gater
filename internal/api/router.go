@@ -826,7 +826,7 @@ func (r *Router) getTestStatus(c *gin.Context) {
 }
 
 // getTestResults 获取测试结果列表
-// GET /api/test/results?gunNumber=&page=1&pageSize=10&startTime=&endTime=
+// GET /api/test/results?page=1&pageSize=10&startTime=&endTime=&sessionId=
 func (r *Router) getTestResults(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
@@ -844,7 +844,9 @@ func (r *Router) getTestResults(c *gin.Context) {
 		}
 	}
 
-	reports, total, err := report.GetTestReports(page, pageSize, startTime, endTime)
+	sessionID := c.Query("sessionId")
+
+	reports, total, err := report.GetTestReports(page, pageSize, startTime, endTime, sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return

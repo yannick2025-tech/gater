@@ -188,13 +188,18 @@ func SaveMessageArchive(sessionID string, rec recorder.MessageRecord) error {
 }
 
 // GetTestReports 查询测试报告列表
-func GetTestReports(page int, pageSize int, startTime *time.Time, endTime *time.Time) ([]model.TestReport, int64, error) {
+// sessionID 非空时按会话过滤（用于直接访问某会话详情页）
+func GetTestReports(page int, pageSize int, startTime *time.Time, endTime *time.Time, sessionID string) ([]model.TestReport, int64, error) {
 	db := database.GetDB()
 	if db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	query := db.Model(&model.TestReport{})
+	// 按会话ID精确过滤
+	if sessionID != "" {
+		query = query.Where("session_id = ?", sessionID)
+	}
 	if startTime != nil {
 		query = query.Where("start_time >= ?", startTime)
 	}
