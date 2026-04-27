@@ -40,6 +40,7 @@ type Context struct {
 	Reply        ReplyFunc         // 发送回复
 	SendDownload SendDownloadFunc  // 主动下发消息（如0x21密钥更新）
 	Proto        types.Protocol
+	Header       types.MessageHeader // 原始帧头（含充电桩上报的版本号等）
 }
 
 // ReplyMessage 便捷回复：编码消息并发送

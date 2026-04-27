@@ -359,6 +359,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		Logger:   logger,
 		Reply:    replyFn,
 		Proto:    proto,
+		Header:   header, // 保留原始帧头（版本号等），回复时使用充电桩上报的版本
 		SendDownload: func(dlMsg types.Message) error {
 			// 主动下发消息到充电桩（如0x21密钥更新）
 			dlData, encErr := dlMsg.Encode()

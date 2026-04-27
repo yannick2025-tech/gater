@@ -63,9 +63,10 @@ func (h *AuthHandler) HandleAuthRandomUpload(ctx *dispatcher.Context) error {
 	ctx.Logger.Infof("[%s] auth: generated 13 random bytes for postNo=%d", ctx.Session.ID, ctx.PostNo)
 
 	// 构建回复帧：传入明文13字节随机数，EncryptFlag=0x01，FrameEncoder会自动加密
+	// 版本号使用充电桩上报的版本（协议持续升级，兼容多版本）
 	replyHeader := types.MessageHeader{
 		StartByte:   ctx.Proto.FrameConfig().StartByte,
-		Version:     ctx.Proto.Version(),
+		Version:     ctx.Header.Version,
 		FuncCode:    types.FuncAuthRandom,
 		PostNo:      ctx.PostNo,
 		Charger:     ctx.Charger,
@@ -127,7 +128,7 @@ func (h *AuthHandler) HandleAuthDataUpload(ctx *dispatcher.Context) error {
 
 	replyHeader := types.MessageHeader{
 		StartByte:  ctx.Proto.FrameConfig().StartByte,
-		Version:    ctx.Proto.Version(),
+		Version:    ctx.Header.Version,
 		FuncCode:   types.FuncAuthEncrypted,
 		PostNo:     ctx.PostNo,
 		Charger:    ctx.Charger,
@@ -274,7 +275,7 @@ func NewBasicHandler(logger logging.Logger) *BasicHandler {
 func (h *BasicHandler) HandleHeartbeat(ctx *dispatcher.Context) error {
 	replyHeader := types.MessageHeader{
 		StartByte:  ctx.Proto.FrameConfig().StartByte,
-		Version:    ctx.Proto.Version(),
+		Version:    ctx.Header.Version,
 		FuncCode:   types.FuncHeartbeat,
 		PostNo:     ctx.PostNo,
 		Charger:    ctx.Charger,
@@ -298,7 +299,7 @@ func (h *BasicHandler) HandleTimeSync(ctx *dispatcher.Context) error {
 
 	replyHeader := types.MessageHeader{
 		StartByte:  ctx.Proto.FrameConfig().StartByte,
-		Version:    ctx.Proto.Version(),
+		Version:    ctx.Header.Version,
 		FuncCode:   types.FuncTimeSync,
 		PostNo:     ctx.PostNo,
 		Charger:    ctx.Charger,

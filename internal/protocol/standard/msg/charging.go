@@ -21,6 +21,12 @@ type FeeItem struct {
 
 // ==================== 字节转换辅助 ====================
 
+// bcdToInt 将BCD编码的单字节解码为十进制整数
+// 例: 0x23 → 23, 0x59 → 59
+func bcdToInt(b byte) int {
+	return int((b>>4)*10 + (b&0x0F))
+}
+
 func bytesToUint64(b []byte) uint64 {
 	var v uint64
 	for i := len(b) - 1; i >= 0; i-- {
@@ -245,8 +251,12 @@ func (m *ChargerStartReply) ToJSONMap() map[string]interface{} {
 	fees := make([]map[string]interface{}, len(m.ListFee))
 	for i, f := range m.ListFee {
 		fees[i] = map[string]interface{}{
-			"hour": f.Hour, "min": f.Min, "powerFee": f.PowerFee,
-			"svcFee": f.SvcFee, "type": f.Type, "limitedP": f.LimitedP,
+			"hour":      bcdToInt(f.Hour),
+			"min":       bcdToInt(f.Min),
+			"powerFee":  f.PowerFee,
+			"svcFee":    f.SvcFee,
+			"type":      f.Type,
+			"limitedP":  f.LimitedP,
 		}
 	}
 	return map[string]interface{}{
