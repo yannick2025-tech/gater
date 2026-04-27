@@ -31,6 +31,7 @@ type Connection struct {
 	Decoder      *codec.FrameDecoder
 	mu           sync.Mutex
 	sendBuf      []byte
+	closed       bool // 防止重复关闭
 }
 
 // Send 发送消息（线程安全）
@@ -66,9 +67,20 @@ func (c *Connection) SendFrame(frame []byte) error {
 	return nil
 }
 
-// Close 关闭连接
+// Close 关闭连接（幂等，重复调用安全）
 func (c *Connection) Close() error {
-	return c.Conn.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil // 已关闭，跳过
+	}
+	c.closed = true
+	// 设置读截止时间为过去，加速 handleConnection 的 Read() 返回 error
+	if c.Conn != nil {
+		c.Conn.SetReadDeadline(time.Now().Add(-1 * time.Second))
+		return c.Conn.Close()
+	}
+	return nil
 }
 
 // DisconnectHandler 断开连接回调（用于生成报告等）

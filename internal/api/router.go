@@ -475,22 +475,25 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 	// 3. 立即返回成功（不等待后续清理操作）
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"isOnline": false}})
 
-	// 4. 异步执行耗时清理操作（按顺序：停场景 → 关记录器 → 存报告 → 移会话 → 关TCP）
+	// 4. 异步执行耗时清理操作
+	// 关键顺序：先关TCP → 再移除session（避免 Remove 触发 onDisconnect 重复处理）
 	go func() {
 		if sess, ok := r.sessMgr.GetByPostNo(postNo); ok {
-			// 4.1 获取场景名称（用于报告命名），再停止场景引擎
+			r.logger.Infof("[disconnect] start cleanup for postNo=%d sessionId=%s", postNo, sess.ID)
+
+			// 4.1 获取场景名称，再停止场景引擎
 			testCaseName := ""
 			if sc, ok := r.scenarioEngine.GetScenario(sess.ID); ok {
 				testCaseName = sc.Name()
 			}
 			r.scenarioEngine.RemoveScenario(sess.ID)
 
-			// 4.2 关闭记录器（停止接收新消息，锁定统计）
+			// 4.2 关闭记录器
 			if sess.Recorder != nil {
 				sess.Recorder.Close()
 			}
 
-			// 4.3 构建会话摘要并保存报告到数据库
+			// 4.3 构建会话摘要并保存报告
 			var summary *recorder.SessionSummary
 			if sess.Recorder != nil {
 				summary = sess.Recorder.Summary()
@@ -505,7 +508,6 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 				}
 			}
 
-			// 协议名称拼接测试用例名
 			protocolName := "XX标准协议"
 			if testCaseName != "" {
 				switch testCaseName {
@@ -519,18 +521,34 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 			}
 			err := report.SaveReport(summary, protocolName, "v1.6.0", sess.GetAuthState().String(), sess.Recorder)
 			if err != nil {
-				fmt.Printf("[disconnect] save report error for session %s: %v\n", sess.ID, err)
+				r.logger.Errorf("[disconnect] save report error for session %s: %v", sess.ID, err)
 			} else {
-				fmt.Printf("[disconnect] report saved for session %s (postNo=%d)\n", sess.ID, postNo)
+				r.logger.Infof("[disconnect] report saved for session %s (postNo=%d)", sess.ID, postNo)
 			}
 
-			// 4.4 移除会话（必须在SaveReport之后，因为Remove也会Close Recorder）
+			// ★ 4.4 先关闭TCP连接（在移除会话之前！）
+			// 必须在 sessMgr.Remove 之前关闭TCP，因为：
+			//   a) Remove 会触发 session 内部清理（可能影响连接引用）
+			//   b) TCP关闭后 handleConnection 的 Read() 才会退出，触发 defer 中的 onDisconnect
+			conn, connFound := r.srv.FindConnectionByPostNo(postNo)
+			if connFound && conn != nil {
+				r.logger.Infof("[disconnect] closing TCP connection for postNo=%d (connId=%s addr=%s)",
+					postNo, conn.ID, conn.RemoteAddr)
+				if closeErr := conn.Close(); closeErr != nil {
+					r.logger.Errorf("[disconnect] conn.Close() error for postNo=%d: %v", postNo, closeErr)
+				} else {
+					r.logger.Infof("[disconnect] TCP connection closed for postNo=%d", postNo)
+				}
+			} else {
+				r.logger.Warnf("[disconnect] TCP connection not found for postNo=%d (may already be closed)", postNo)
+			}
+
+			// 4.5 最后移除会话（必须在TCP关闭之后）
 			r.sessMgr.Remove(sess.ID)
 
-			// 4.5 关闭TCP连接（在移除会话之后，避免onDisconnect重复清理）
-			if conn, ok := r.srv.FindConnectionByPostNo(postNo); ok {
-				conn.Close()
-			}
+			r.logger.Infof("[disconnect] cleanup completed for postNo=%d sessionId=%s", postNo, sess.ID)
+		} else {
+			r.logger.Warnf("[disconnect] session not found for postNo=%d (already removed?)", postNo)
 		}
 	}()
 }
