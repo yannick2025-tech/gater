@@ -192,6 +192,27 @@ watch(() => deviceStore.selectedSession, (sess) => {
   }
 })
 
+// 监听URL路由参数变化（同一组件内导航不会重新触发 onMounted）
+// 当 URL 从 /session/:id 变为 / 时（如点击侧边栏菜单），重置到会话列表视图
+watch(() => route.params.sessionId as string | undefined, (newSessionId, oldSessionId) => {
+  // 有 → 无：从详情页回到首页
+  if (!newSessionId && oldSessionId) {
+    handleBackToList()
+  } else if (newSessionId && newSessionId !== oldSessionId) {
+    // 切换到了另一个会话的详情页
+    const matched = deviceStore.sessionList.find(
+      (s: SessionItem) => s.sessionId === newSessionId
+    )
+    if (matched) {
+      handleSelectSession(matched)
+      if (!matched.isOnline) {
+        isDisconnected.value = true
+        disconnectedSession.value = { ...matched }
+      }
+    }
+  }
+})
+
 // 页面挂载时启动会话列表轮询，并根据URL参数或运行状态恢复选中会话
 onMounted(async () => {
   await deviceStore.fetchSessions()
