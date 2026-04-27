@@ -517,7 +517,7 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 					protocolName = "XX标准协议-配置下发测试"
 				}
 			}
-			err := report.SaveReport(summary, protocolName, "v1.6.0", sess.GetAuthState().String())
+			err := report.SaveReport(summary, protocolName, "v1.6.0", sess.GetAuthState().String(), sess.Recorder)
 			if err != nil {
 				fmt.Printf("[disconnect] save report error for session %s: %v\n", sess.ID, err)
 			} else {
@@ -828,31 +828,37 @@ func (r *Router) getTestResults(c *gin.Context) {
 
 // getTestDetail 获取测试详情
 // GET /api/test/detail/:sessionId
+// 即使报告不存在也返回 200（避免前端 axios 拦截器弹"请求的资源不存在"）
 func (r *Router) getTestDetail(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
 	testReport, err := report.GetTestReportBySessionID(sessionID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
-		return
-	}
 
 	stats, _ := report.GetFuncCodeStatsBySessionID(sessionID)
+
+	// 报告存在时用实际数据，不存在时返回空默认值（status=running 表示尚未入库完成）
+	startTime := time.Time{}
+	endTime := time.Time{}
+	status := "running"
+	if err == nil && testReport != nil {
+		startTime = testReport.StartTime
+		endTime = testReport.EndTime
+		if testReport.IsPass {
+			status = "pass"
+		} else if testReport.Status == "completed" || !testReport.EndTime.IsZero() {
+			status = "fail"
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"sessionId": sessionID,
-			"startTime": testReport.StartTime,
-			"endTime":   testReport.EndTime,
-			"status": func() string {
-				if testReport.IsPass {
-					return "pass"
-				}
-				return "fail"
-			}(),
-		"statistics": stats,
-	},
+			"sessionId":  sessionID,
+			"startTime":  startTime,
+			"endTime":    endTime,
+			"status":     status,
+			"statistics": stats,
+		},
 	})
 }
 

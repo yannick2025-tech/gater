@@ -49,7 +49,8 @@ func CreateRunningReport(sessionID string, postNo uint32, testCase string) error
 
 // SaveReport 保存/更新测试报告到数据库（会话结束时调用）
 // 使用 UPSERT 语义：如果 startTest 已创建了 running 占位记录，则更新为 completed；否则新建
-func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolVer string, authState string) error {
+// rec 参数可选：传入时将 Recorder 中所有报文记录批量刷写到 message_archives 表（兜底补偿）
+func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolVer string, authState string, rec *recorder.SessionRecorder) error {
 	db := database.GetDB()
 	if db == nil {
 		return fmt.Errorf("database not initialized")
@@ -102,6 +103,34 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 		}
 		if err := db.Create(fcStat).Error; err != nil {
 			return fmt.Errorf("save func code stat failed: %w", err)
+		}
+	}
+
+	// 3. 批量刷写 Recorder 的所有报文记录到 message_archives（兜底补偿）
+	// 运行时的实时异步写入可能因竞态/时序丢失部分数据，此处确保完整性
+	if rec != nil {
+		records := rec.GetAllRecords()
+		if len(records) > 0 {
+			archives := make([]model.MessageArchive, len(records))
+			for i, r := range records {
+				archives[i] = model.MessageArchive{
+					SessionID: summary.SessionID,
+					FuncCode:  recorder.FormatFuncCode(r.FuncCode),
+					Direction: recorder.FormatDirection(r.Direction),
+					Status:    string(r.Status),
+					HexData:   r.HexData,
+					JSONData:  r.JSONData,
+					ErrorMsg:  r.ErrorMsg,
+					Timestamp: r.Timestamp,
+				}
+			}
+			// 批量插入（使用 Clauses ON DUPLICATE KEY IGNORE 避免与实时写入冲突）
+			if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&archives).Error; err != nil {
+				fmt.Printf("[SaveReport] batch flush message archives warning: %v\n", err)
+				// 不返回错误，报告本身已保存成功
+			} else {
+				fmt.Printf("[SaveReport] batch flushed %d message archives for session %s\n", len(archives), summary.SessionID)
+			}
 		}
 	}
 

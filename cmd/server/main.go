@@ -472,7 +472,7 @@ func onDisconnect(conn *server.Connection, postNo uint32, sessMgr *session.Sessi
 
 		// 保存报告到数据库
 		authState := sess.GetAuthState().String()
-		if err := report.SaveReport(summary, proto.Name(), fmt.Sprintf("v0x%02X", proto.Version()), authState); err != nil {
+		if err := report.SaveReport(summary, proto.Name(), fmt.Sprintf("v0x%02X", proto.Version()), authState, sess.Recorder); err != nil {
 			logger.Errorf("[sess:%s] save report failed: %v", sess.ID, err)
 		} else {
 			logger.Infof("[sess:%s] report saved to database", sess.ID)
