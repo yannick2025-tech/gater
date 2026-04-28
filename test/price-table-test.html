@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>时段费率配置 - 本地测试</title>
+  <!-- Element Plus CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus@2.9.1/dist/index.css" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f7fa;
+      padding: 24px;
+      margin: 0;
+    }
+    .test-container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      padding: 24px;
+    }
+    h2 { margin-top: 0; color: #303133; }
+    .divider { border-top: 1px solid #ebeef5; margin: 20px 0; }
+    .section-title { font-size: 14px; color: #606266; font-weight: 600; margin-bottom: 12px; }
+    .json-block {
+      background: #f5f7fa;
+      border: 1px solid #e4e7ed;
+      border-radius: 4px;
+      padding: 12px;
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+      color: #606266;
+    }
+    .tips { font-size: 12px; color: #909399; line-height: 1.8; }
+    .tips li { margin-bottom: 4px; }
+
+    /* PriceTable styles */
+    .price-table-wrapper { font-size: 13px; }
+    .price-table { width: 100%; border-collapse: collapse; }
+    .price-table th { text-align: left; padding: 8px 10px; color: #666; font-weight: 500; border-bottom: 1px solid #eee; font-size: 12px; }
+    .price-table td { padding: 8px 4px; vertical-align: middle; }
+    .time-cell .el-select { width: 110px !important; }
+    .peak-cell .el-select { width: 90px !important; }
+    .action-col { text-align: center; }
+    .empty-row { text-align: center; color: #ccc; padding: 16px !important; }
+    .add-row-btn { margin-top: 8px; }
+
+    .log-area {
+      margin-top: 16px;
+      background: #1e1e1e;
+      border-radius: 6px;
+      padding: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .log-line { font-family: monospace; font-size: 12px; color: #d4d4d4; line-height: 1.8; }
+    .log-line.info { color: #9cdcfe; }
+    .log-line.warn { color: #ce9178; }
+    .log-line.error { color: #f48771; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="test-container">
+    <h2>时段费率配置 - 本地测试页</h2>
+
+    <ul class="tips">
+      <li>规则：所有时段必须<strong>连续覆盖 00:00 ~ 23:59</strong>，不能有空隙或重叠</li>
+      <li>删除中间行时，前一行的结束时间会自动衔接（时段合并）</li>
+      <li>修改某行的结束时间时，下一行自动衔接</li>
+      <li>峰谷枚举：<strong>1=峰 2=尖 3=谷 4=平</strong></li>
+    </ul>
+
+    <div class="divider"></div>
+    <div class="section-title">费率配置表</div>
+
+    <!-- PriceTable Component -->
+    <div class="price-table-wrapper">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>时段开始</th>
+            <th>时段结束</th>
+            <th>电费(元/kWh)</th>
+            <th>服务费(元/kWh)</th>
+            <th>峰谷类型</th>
+            <th width="40"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, idx) in prices" :key="idx">
+            <td class="time-cell">
+              <el-time-select
+                v-model="row.startTime"
+                start="00:00"
+                step="01:00"
+                end="23:59"
+                placeholder="--:--"
+                size="small"
+                disabled
+              />
+            </td>
+            <td class="time-cell">
+              <el-time-select
+                v-model="row.endTime"
+                start="00:00"
+                step="00:30"
+                end="23:59"
+                placeholder="--:--"
+                size="small"
+                editable
+                @change="(v) => onEndTimeChange(idx, v)"
+              />
+            </td>
+            <td>
+              <el-input-number
+                v-model="row.electricityFee"
+                :min="0"
+                :precision="4"
+                controls-position="right"
+                size="small"
+                style="width: 130px"
+              />
+            </td>
+            <td>
+              <el-input-number
+                v-model="row.serviceFee"
+                :min="0"
+                :precision="4"
+                controls-position="right"
+                size="small"
+                style="width: 130px"
+              />
+            </td>
+            <td class="peak-cell">
+              <el-select
+                v-model="row.peakValleyType"
+                size="small"
+                style="width: 90px"
+              >
+                <el-option label="峰" :value="1" />
+                <el-option label="尖" :value="2" />
+                <el-option label="谷" :value="3" />
+                <el-option label="平" :value="4" />
+              </el-select>
+            </td>
+            <td class="action-col">
+              <el-button
+                type="danger" link size="small"
+                :disabled="prices.length <= 1"
+                @click="removeRow(idx)"
+              >删除</el-button>
+            </td>
+          </tr>
+          <tr v-if="prices.length === 0">
+            <td colspan="6" class="empty-row">暂无配置</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="add-row-btn">
+        <el-button
+          type="primary" plain size="small"
+          :disabled="!canAddRow || prices.length >= 48"
+          @click="addRow"
+        >+ 添加时段</el-button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title">当前数据 (模拟 POST /api/test/start 的 params.prices)</div>
+    <div class="json-block">{{ jsonOutput }}</div>
+
+    <div class="divider"></div>
+    <div class="section-title">操作日志</div>
+    <div class="log-area">
+      <div v-for="(log, i) in logs" :key="i" :class="['log-line', log.type]">{{ log.msg }}</div>
+      <div v-if="logs.length === 0" class="log-line">(暂无操作)</div>
+    </div>
+
+    <div class="divider"></div>
+    <el-button type="primary" @click="simulateSend" style="margin-right: 12px;">模拟发送到后端</el-button>
+    <el-button @click="resetData">重置为默认值</el-button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus@2.9.1/dist/index.full.js"></script>
+
+<script>
+const { createApp, ref, computed } = Vue
+
+const app = createApp({
+  setup() {
+    // ===== 核心数据 =====
+    const prices = ref([
+      { startTime: '00:00', endTime: '23:59', electricityFee: 1, serviceFee: 2, peakValleyType: 4 },
+    ])
+    const logs = ref([])
+
+    function log(msg, type = 'info') {
+      const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      logs.value.push({ type, msg: `[${now}] ${msg}` })
+      if (logs.value.length > 50) logs.value.shift() // 保留最近50条
+    }
+
+    // ===== 工具函数 =====
+    function timeToMinutes(t) {
+      if (!t) return 0
+      const parts = t.split(':')
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0)
+    }
+
+    // ===== 能否新增：最后一行结束时间不是 23:59 =====
+    const canAddRow = computed(() => {
+      if (prices.value.length >= 48) return false
+      if (prices.value.length === 0) return true
+      return !!prices.value[prices.value.length - 1] && prices.value[prices.value.length - 1].endTime !== '23:59'
+    })
+
+    // ===== 添加行 =====
+    function addRow() {
+      if (!canAddRow.value) return
+      const lastRow = prices.value[prices.value.length - 1]
+      const newRow = {
+        startTime: lastRow ? lastRow.endTime : '00:00',
+        endTime: '23:59',
+        electricityFee: 0,
+        serviceFee: 0,
+        peakValleyType: undefined,
+      }
+      log(`添加新时段: ${newRow.startTime} ~ ${newRow.endTime}`)
+      prices.value.push(newRow)
+    }
+
+    // ===== 删除行（修复后：重建时间链确保连续） =====
+    function removeRow(idx) {
+      if (prices.value.length <= 1) return
+      const removed = prices.value[idx]
+      const filtered = prices.value.filter((_, i) => i !== idx)
+
+      let currentStart = '00:00'
+      for (let i = 0; i < filtered.length; i++) {
+        filtered[i] = { ...filtered[i] }
+        filtered[i].startTime = currentStart
+        if (i === filtered.length - 1) {
+          filtered[i].endTime = '23:59'
+        } else {
+          currentStart = filtered[i].endTime
+        }
+      }
+
+      log(`删除时段[${idx}]: ${removed.startTime}~${removed.endTime}, 重建后共 ${filtered.length} 段`, 'warn')
+      prices.value.splice(0, Infinity, ...filtered)
+    }
+
+    // ===== 结束时间变更 =====
+    function onEndTimeChange(idx, val) {
+      if (!val) return
+      if (!/^\d{1,2}:\d{2}$/.test(val)) return
+
+      const startMin = timeToMinutes(prices.value[idx].startTime)
+      const endMin = timeToMinutes(val)
+      if (endMin <= startMin) return
+
+      prices.value[idx].endTime = val
+      log(`时段[${idx}] endTime 变更为 ${val}`)
+
+      // 衔接下一行
+      if (idx < prices.value.length - 1) {
+        prices.value[idx + 1].startTime = val
+        if (timeToMinutes(val) >= timeToMinutes(prices.value[idx + 1].endTime)) {
+          prices.value[idx + 1].endTime = '23:59'
+          log(`  → 时段[${idx + 1}] 自动调整为 ${val}~23:59`, 'warn')
+        } else {
+          log(`  → 时段[${idx + 1}] 开始时间衔接为 ${val}`)
+        }
+      }
+    }
+
+    // ===== JSON 输出 =====
+    const jsonOutput = computed(() => {
+      try {
+        return JSON.stringify(prices.value.map(p => ({
+          startTime: p.startTime,
+          endTime: p.endTime,
+          electricityFee: p.electricityFee,
+          serviceFee: p.serviceFee,
+          peakValleyType: p.peakValleyType,
+        })), null, 2)
+      } catch { return '' }
+    })
+
+    // ===== 模拟发送 =====
+    function simulateSend() {
+      // 验证连续性
+      let prevEnd = ''
+      let gaps = []
+      for (const p of prices.value) {
+        if (prevEnd && p.startTime !== prevEnd) {
+          gaps.push(`空隙: ${prevEnd} ~ ${p.startTime}`)
+        }
+        prevEnd = p.endTime
+      }
+      if (prevEnd !== '23:59') {
+        gaps.push(`末尾未覆盖到23:59, 实际结束于${prevEnd}`)
+      }
+
+      if (gaps.length > 0) {
+        log(`发送失败! 存在问题: ${gaps.join('; ')}`, 'error')
+        ElementPlus.ElMessage.error(`验证失败: ${gaps[0]}`)
+      } else {
+        log(`模拟发送成功! 共 ${prices.value.length} 个时段`)
+        ElementPlus.ElMessage.success(`发送成功! ${prices.value.length} 个时段, 数据见下方JSON`)
+      }
+    }
+
+    // ===== 重置 =====
+    function resetData() {
+      prices.value = [
+        { startTime: '00:00', endTime: '23:59', electricityFee: 1, serviceFee: 2, peakValleyType: 4 },
+      ]
+      logs.value = []
+      log('已重置为默认值')
+    }
+
+    return {
+      prices, logs, jsonOutput, canAddRow,
+      addRow, removeRow, onEndTimeChange, simulateSend, resetData,
+    }
+  }
+})
+
+app.use(ElementPlus)
+app.mount('#app')
+</script>
+</body>
+</html>

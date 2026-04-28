@@ -169,19 +169,25 @@ function addRow() {
 function removeRow(idx: number) {
   if (props.prices.length <= 1) return
 
-  const newPrices: PriceRow[] = []
+  const filtered: PriceRow[] = []
   for (let i = 0; i < props.prices.length; i++) {
-    if (i !== idx) {
-      newPrices.push({ ...props.prices[i] })
+    if (i !== idx) filtered.push({ ...props.prices[i] })
+  }
+  if (filtered.length === 0) return
+
+  // 删除后重建时间链：确保 00:00 ~ 23:59 连续无空隙
+  // 前一行的endTime自动衔接为被删行的endTime（时段合并）
+  let currentStart = '00:00'
+  for (let i = 0; i < filtered.length; i++) {
+    filtered[i].startTime = currentStart
+    if (i === filtered.length - 1) {
+      filtered[i].endTime = '23:59'        // 最后一行必须到23:59
+    } else {
+      currentStart = filtered[i].endTime    // 下行开始=本行结束
     }
   }
 
-  // 删除后末行必须以23:59结尾（保持完整覆盖）
-  if (newPrices.length > 0) {
-    newPrices[newPrices.length - 1].endTime = '23:59'
-  }
-
-  emit('update:prices', newPrices)
+  emit('update:prices', filtered)
 }
 
 function onEndTimeChange(idx: number, val: string | undefined) {
