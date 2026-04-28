@@ -73,6 +73,7 @@ type Session struct {
 
 	// 充电状态追踪
 	ChargingState *ChargingState           // 充电过程状态（0x03/0x06/0x05更新）
+	SentPeakTypes  []byte                  // 0x04下发的峰谷类型列表（按时段顺序），供0x06校验用
 
 	mu sync.RWMutex
 }
@@ -182,6 +183,20 @@ func (s *Session) GetPrices() []PriceConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Prices
+}
+
+// SetSentPeakTypes 存储0x04下发的峰谷类型（供0x06校验用）
+func (s *Session) SetSentPeakTypes(types []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SentPeakTypes = types
+}
+
+// GetSentPeakTypes 获取0x04下发的峰谷类型
+func (s *Session) GetSentPeakTypes() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SentPeakTypes
 }
 
 // GetChargingState 获取充电状态（线程安全副本）

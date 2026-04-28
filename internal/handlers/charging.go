@@ -8,7 +8,6 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/generator"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
-	"github.com/yannick2025-tech/nts-gater/internal/session"
 	logging "github.com/yannick2025-tech/gwc-logging"
 )
 
@@ -54,6 +53,12 @@ func (h *ChargingHandler) HandleChargerStartUpload(ctx *dispatcher.Context) erro
 			}
 		}
 		h.logger.Infof("[charging] using WEB prices: %d rules from session", len(msgFees))
+		// 存储下发的峰谷类型，供0x06校验使用
+		peakTypes := make([]byte, len(msgFees))
+		for i, f := range msgFees {
+			peakTypes[i] = f.Type
+		}
+		ctx.Session.SetSentPeakTypes(peakTypes)
 	} else {
 		// 无WEB端配置时使用默认费率
 		billingRules := generator.GenerateBillingRules()
@@ -147,7 +152,6 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 		}
 
 		// 2. 分时段累计信息校验
-		prices := ctx.Session.GetPrices()
 		for i, item := range dataMsg.OverTimeAccumulateInformationList {
 			// 2a. 计费校验: electricityPrices * electricity / 10000 ≈ electricityFee
 			expectedElecFee := float64(item.ElectricityPrices) * float64(item.Electricity) / 10000
@@ -175,9 +179,14 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 				h.logger.Infof("[%s] [GATER] [0x06] 校验 服务费计算[时段%d] PASS: expected=%.2f actual=%.2f", sid, i, expectedSvcFee, actualSvcFee)
 			}
 
-			// 2c. 峰谷标识校验（如果有WEB端费率配置）
-			if len(prices) > 0 {
-				gaterType := h.getPeakValleyTypeForTime(item.EndTime, prices)
+			// 2c. 峰谷标识校验：使用0x04下发时存储的类型（与时间匹配无关）
+			sentTypes := ctx.Session.GetSentPeakTypes()
+			if len(sentTypes) > 0 {
+				// 按时段索引取值（0x04下发的listFee与0x06上报的OverTimeAccumulateInformationList顺序一致）
+				gaterType := byte(0)
+				if i < len(sentTypes) {
+					gaterType = sentTypes[i]
+				}
 				if gaterType != item.PeaksValleysFlag {
 					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), false,
 						fmt.Sprintf("gaterType=%d pileType=%d", gaterType, item.PeaksValleysFlag))
@@ -194,54 +203,6 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 	// 回复确认
 	reply := &msg.ChargingDataReply{Confirm: 0x00}
 	return ctx.ReplyMessage(reply)
-}
-
-// getPeakValleyTypeForTime 根据时间和WEB端费率配置返回峰谷类型
-func (h *ChargingHandler) getPeakValleyTypeForTime(endTimeBCD string, prices []session.PriceConfig) byte {
-	// endTimeBCD 为 BCD[6] 解码后的字符串，如 "260428094200"(YYMMDDHHmmSS)
-	if len(endTimeBCD) < 12 {
-		h.logger.Warnf("[charging] getPeakValleyTypeForTime: endTimeBCD too short len=%d val=%q", len(endTimeBCD), endTimeBCD)
-		return 0
-	}
-	hourMin := endTimeBCD[8:12] // "HHmm"
-	hour := 0
-	min := 0
-	fmt.Sscanf(hourMin, "%2d%2d", &hour, &min)
-	timeVal := hour*60 + min
-
-	h.logger.Debugf("[charging] getPeakValleyTypeForTime: endTimeBCD=%s hourMin=%s timeVal=%d prices=%d rules",
-		endTimeBCD, hourMin, timeVal, len(prices))
-
-	for i, p := range prices {
-		startH, startM := parseHHMM(p.StartTime)
-		endH, endM := parseHHMM(p.EndTime)
-		startVal := startH*60 + startM
-		endVal := endH*60 + endM
-
-		inRange := false
-		if endVal > startVal {
-			inRange = timeVal >= startVal && timeVal < endVal
-		} else {
-			inRange = timeVal >= startVal || timeVal < endVal
-		}
-
-		h.logger.Debugf("[charging]   rule[%d]: %s-%s peakValleyType=%d electricityFee=%.4f inRange=%v",
-			i, p.StartTime, p.EndTime, p.PeakValleyType, p.ElectricityFee, inRange)
-
-		if inRange {
-			// 峰谷类型唯一合法来源：前端配置（1尖2峰3平4谷），与电费无关
-			return p.PeakValleyType
-		}
-	}
-
-	h.logger.Warnf("[charging] getPeakValleyTypeForTime: NO matching rule for timeVal=%d endTimeBCD=%s, returning 0",
-		timeVal, endTimeBCD)
-	return 0
-}
-
-func parseHHMM(s string) (hour, min int) {
-	fmt.Sscanf(s, "%d:%d", &hour, &min)
-	return
 }
 
 // HandlePlatformStartDownload 处理平台下发0x03（下载方向，由业务API触发）
