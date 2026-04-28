@@ -110,6 +110,12 @@ func (s *BasicChargingScenario) SetParams(params map[string]interface{}) {
 					if sf, ok := pm["serviceFee"].(float64); ok {
 						pc.ServiceFee = sf
 					}
+					// 峰尖谷平类型：前端传入（1尖2峰3平4谷）
+					if pvt, ok := pm["peakValleyType"].(float64); ok {
+						pc.PeakValleyType = byte(pvt)
+					} else if pvtInt, ok := pm["peakValleyType"].(int64); ok {
+						pc.PeakValleyType = byte(pvtInt)
+					}
 					prices = append(prices, pc)
 				}
 			}

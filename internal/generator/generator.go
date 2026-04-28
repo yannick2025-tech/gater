@@ -126,8 +126,11 @@ func PricesToFeeItems(prices []session.PriceConfig) []FeeItem {
 		powerFee := uint32(p.ElectricityFee * 10000)
 		svcFee := uint32(p.ServiceFee * 10000)
 
-		// 确定时段类型
-		typ := classifyPeakValley(powerFee)
+		// 使用前端传入的峰谷类型（1尖2峰3平4谷），未指定时才回退到按电费推算
+		typ := p.PeakValleyType
+		if typ == 0 {
+			typ = classifyPeakValley(powerFee)
+		}
 
 		rules = append(rules, FeeItem{
 			Hour:     byteToBCD(byte(endH)),

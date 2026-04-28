@@ -222,7 +222,11 @@ func (h *ChargingHandler) getPeakValleyTypeForTime(endTimeBCD string, prices []s
 		}
 
 		if inRange {
-			// 根据电费价格判断峰谷类型
+			// 使用前端配置时指定的峰谷类型（1尖2峰3平4谷）
+			if p.PeakValleyType != 0 {
+				return p.PeakValleyType
+			}
+			// 未指定时回退到按电费推算（兼容旧数据）
 			if p.ElectricityFee >= 1.4 {
 				return 1 // 尖
 			} else if p.ElectricityFee >= 0.9 {

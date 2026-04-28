@@ -31,7 +31,8 @@
 
       <!-- 基础充电参数 (仅 basic_charging 显示) -->
       <template v-if="showChargingParams">
-        <div class="form-section">
+        <div class="form-section" :class="{ 'charging-disabled': isCharging }">
+          <div class="section-label" v-if="isCharging">基础充电测试（充电中，禁止编辑）</div>
           <div class="form-row three-col">
             <el-form-item label="输出电压(V)" class="form-item-nested">
               <el-input-number v-model="formData.voltage" :min="0" :max="1000" controls-position="right" class="full-width" size="default" />
@@ -218,7 +219,7 @@ const showChargingParams = computed(() => formData.value.scenario === 'basic_cha
 watch(() => formData.value.scenario, (val) => {
   if (val === 'basic_charging' && formData.value.prices.length === 0) {
     formData.value.prices = [
-      { startTime: '00:00', endTime: '23:59', electricityFee: 0, serviceFee: 0 },
+      { startTime: '00:00', endTime: '23:59', electricityFee: 0, serviceFee: 0, peakValleyType: 2 },
     ]
   }
 })
@@ -418,6 +419,20 @@ function handleStop() {
   opacity: 0.6;
   pointer-events: none;
   user-select: none;
+}
+
+/* 充电中时基础参数区域置灰（同上，仅针对基础充电测试区域） */
+.charging-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
+.section-label {
+  font-size: 12px;
+  color: #e6a23c;
+  margin-bottom: 8px;
+  font-weight: 500;
 }
 
 .form-disabled :deep(.el-input__inner),

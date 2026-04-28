@@ -7,6 +7,7 @@
           <th>时段结束</th>
           <th>电费(元/kWh)</th>
           <th>服务费(元/kWh)</th>
+          <th>峰尖谷平</th>
           <th width="40"></th>
         </tr>
       </thead>
@@ -64,6 +65,22 @@
               @change="(v: number | undefined) => updateFee(idx, 'serviceFee', v)"
             />
           </td>
+          <!-- 峰尖谷平 -->
+          <td class="peak-cell">
+            <el-select
+              :model-value="row.peakValleyType || ''"
+              placeholder=""
+              size="small"
+              style="width: 90px"
+              :disabled="disabled"
+              @change="(v: string | number | undefined) => updatePeakValley(idx, v)"
+            >
+              <el-option label="尖" :value="1" />
+              <el-option label="峰" :value="2" />
+              <el-option label="平" :value="3" />
+              <el-option label="谷" :value="4" />
+            </el-select>
+          </td>
           <td class="action-col">
             <el-button
               type="danger"
@@ -77,7 +94,7 @@
           </td>
         </tr>
         <tr v-if="prices.length === 0">
-          <td colspan="5" class="empty-row">暂无配置，点击下方按钮添加</td>
+          <td colspan="6" class="empty-row">暂无配置，点击下方按钮添加</td>
         </tr>
       </tbody>
     </table>
@@ -105,6 +122,7 @@ export interface PriceRow {
   endTime: string
   electricityFee: number
   serviceFee: number
+  peakValleyType?: number  // 峰尖谷平: 1尖2峰3平4谷
 }
 
 const props = defineProps<{
@@ -143,6 +161,7 @@ function addRow() {
     endTime: '23:59',
     electricityFee: 0,
     serviceFee: 0,
+    peakValleyType: undefined,
   }
   emit('update:prices', [...props.prices, newRow])
 }
@@ -204,6 +223,13 @@ function updateFee(idx: number, field: 'electricityFee' | 'serviceFee', val: num
   emit('update:prices', newPrices)
 }
 
+function updatePeakValley(idx: number, val: string | number | undefined) {
+  const newPrices = props.prices.map((row, i) =>
+    i === idx ? { ...row, peakValleyType: (typeof val === 'number' ? val : Number(val)) } : { ...row }
+  )
+  emit('update:prices', newPrices)
+}
+
 /** "HH:mm" -> 分钟数 */
 function timeToMinutes(t: string): number {
   if (!t) return 0
@@ -238,6 +264,10 @@ function timeToMinutes(t: string): number {
 
 .time-cell .el-select {
   width: 110px !important;
+}
+
+.peak-cell .el-select {
+  width: 90px !important;
 }
 
 .action-col {
