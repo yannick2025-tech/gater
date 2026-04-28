@@ -22,6 +22,7 @@
           placeholder="请选择"
           class="full-select"
           size="default"
+          :disabled="isCharging"
         >
           <el-option label="基础充电测试" value="basic_charging" />
           <el-option label="SFTP升级测试" value="sftp_upgrade" />

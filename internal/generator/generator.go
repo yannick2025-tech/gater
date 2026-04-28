@@ -126,18 +126,13 @@ func PricesToFeeItems(prices []session.PriceConfig) []FeeItem {
 		powerFee := uint32(p.ElectricityFee * 10000)
 		svcFee := uint32(p.ServiceFee * 10000)
 
-		// 使用前端传入的峰谷类型（1尖2峰3平4谷），未指定时才回退到按电费推算
-		typ := p.PeakValleyType
-		if typ == 0 {
-			typ = classifyPeakValley(powerFee)
-		}
-
+		// 峰谷类型：唯一合法来源是前端配置（1尖2峰3平4谷），与电费价格无逻辑关系
 		rules = append(rules, FeeItem{
 			Hour:     byteToBCD(byte(endH)),
 			Min:      byteToBCD(byte(endM)),
 			PowerFee: powerFee,
 			SvcFee:   svcFee,
-			Type:     typ,
+			Type:     p.PeakValleyType,
 			LimitedP: 0,
 		})
 	}
@@ -153,18 +148,6 @@ func parseHHMM(s string) (hour, min int) {
 	h, m := 0, 0
 	fmt.Sscanf(s, "%d:%d", &h, &m)
 	return h, m
-}
-
-// classifyPeakValley 根据电费价格分类峰谷类型
-func classifyPeakValley(powerFee uint32) byte {
-	if powerFee >= 14000 {
-		return PeakValleySharp
-	} else if powerFee >= 9000 {
-		return PeakValleyPeak
-	} else if powerFee >= 5000 {
-		return PeakValleyFlat
-	}
-	return PeakValleyValley
 }
 
 // ==================== 充电参数 ====================

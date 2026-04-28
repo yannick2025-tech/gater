@@ -198,17 +198,21 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 
 // getPeakValleyTypeForTime 根据时间和WEB端费率配置返回峰谷类型
 func (h *ChargingHandler) getPeakValleyTypeForTime(endTimeBCD string, prices []session.PriceConfig) byte {
-	// endTimeBCD 格式: "202604221520" → 取时间部分 "1520"
+	// endTimeBCD 为 BCD[6] 解码后的字符串，如 "260428094200"(YYMMDDHHmmSS)
 	if len(endTimeBCD) < 12 {
+		h.logger.Warnf("[charging] getPeakValleyTypeForTime: endTimeBCD too short len=%d val=%q", len(endTimeBCD), endTimeBCD)
 		return 0
 	}
-	hourMin := endTimeBCD[8:12] // "1520"
+	hourMin := endTimeBCD[8:12] // "HHmm"
 	hour := 0
 	min := 0
 	fmt.Sscanf(hourMin, "%2d%2d", &hour, &min)
 	timeVal := hour*60 + min
 
-	for _, p := range prices {
+	h.logger.Debugf("[charging] getPeakValleyTypeForTime: endTimeBCD=%s hourMin=%s timeVal=%d prices=%d rules",
+		endTimeBCD, hourMin, timeVal, len(prices))
+
+	for i, p := range prices {
 		startH, startM := parseHHMM(p.StartTime)
 		endH, endM := parseHHMM(p.EndTime)
 		startVal := startH*60 + startM
@@ -221,22 +225,17 @@ func (h *ChargingHandler) getPeakValleyTypeForTime(endTimeBCD string, prices []s
 			inRange = timeVal >= startVal || timeVal < endVal
 		}
 
+		h.logger.Debugf("[charging]   rule[%d]: %s-%s peakValleyType=%d electricityFee=%.4f inRange=%v",
+			i, p.StartTime, p.EndTime, p.PeakValleyType, p.ElectricityFee, inRange)
+
 		if inRange {
-			// 使用前端配置时指定的峰谷类型（1尖2峰3平4谷）
-			if p.PeakValleyType != 0 {
-				return p.PeakValleyType
-			}
-			// 未指定时回退到按电费推算（兼容旧数据）
-			if p.ElectricityFee >= 1.4 {
-				return 1 // 尖
-			} else if p.ElectricityFee >= 0.9 {
-				return 2 // 峰
-			} else if p.ElectricityFee >= 0.5 {
-				return 3 // 平
-			}
-			return 4 // 谷
+			// 峰谷类型唯一合法来源：前端配置（1尖2峰3平4谷），与电费无关
+			return p.PeakValleyType
 		}
 	}
+
+	h.logger.Warnf("[charging] getPeakValleyTypeForTime: NO matching rule for timeVal=%d endTimeBCD=%s, returning 0",
+		timeVal, endTimeBCD)
 	return 0
 }
 
