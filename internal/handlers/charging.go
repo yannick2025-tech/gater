@@ -204,9 +204,12 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 
 // findPeakTypeByEndTime 根据0x06上报时段的EndTime(HHmm)在session费率配置中精确匹配峰谷类型
 //
-// 0x06上报的EndTime格式: BCD[6]解码后的字符串如 "260428110000"(YYMMDDHHmmSS)
-// 取HHmm部分(如 "1100")，去session prices中找 EndTime=="11:00" 的规则，返回其 PeakValleyType
+// 0x06上报的EndTime格式: BCD[6]解码后的字符串如 "202604282359"(YYMMDDHHmmSS)
+// 取HHmm部分(如 "2359")，去session prices中找 EndTime=="23:59" 的规则，返回其 PeakValleyType
 func (h *ChargingHandler) findPeakTypeByEndTime(endTimeBCD string, prices []session.PriceConfig) byte {
+	h.logger.Debugf("[charging] findPeakTypeByEndTime: endTimeBCD=%q(len=%d) prices=%d",
+		endTimeBCD, len(endTimeBCD), len(prices))
+
 	if len(endTimeBCD) < 12 {
 		h.logger.Warnf("[charging] findPeakTypeByEndTime: endTimeBCD too short len=%d val=%q", len(endTimeBCD), endTimeBCD)
 		return 0
@@ -215,14 +218,18 @@ func (h *ChargingHandler) findPeakTypeByEndTime(endTimeBCD string, prices []sess
 
 	// 将 "HHmm" 转为 "HH:mm" 用于匹配 PriceConfig.EndTime
 	endTimeFormatted := hhmm[:2] + ":" + hhmm[2:]
+	h.logger.Debugf("[charging]   hhmm=%s formatted=%s", hhmm, endTimeFormatted)
 
-	for _, p := range prices {
-		if p.EndTime == endTimeFormatted {
+	for i, p := range prices {
+		matched := p.EndTime == endTimeFormatted
+		h.logger.Debugf("[charging]   prices[%d]: EndTime=%q PeakValleyType=%d matched=%v",
+			i, p.EndTime, p.PeakValleyType, matched)
+		if matched {
 			return p.PeakValleyType
 		}
 	}
 
-	h.logger.Warnf("[charging] findPeakTypeByEndTime: no match for endTimeBCD=%s hhmm=%s, returning 0",
+	h.logger.Warnf("[charging] findPeakTypeByEndTime: NO match for endTimeBCD=%s hhmm=%s, returning 0",
 		endTimeBCD, hhmm)
 	return 0
 }
