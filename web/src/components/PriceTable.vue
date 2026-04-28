@@ -75,10 +75,10 @@
               :disabled="disabled"
               @change="(v: string | number | undefined) => updatePeakValley(idx, v)"
             >
-              <el-option label="尖" :value="1" />
-              <el-option label="峰" :value="2" />
-              <el-option label="平" :value="3" />
-              <el-option label="谷" :value="4" />
+              <el-option label="峰" :value="1" />
+              <el-option label="尖" :value="2" />
+              <el-option label="谷" :value="3" />
+              <el-option label="平" :value="4" />
             </el-select>
           </td>
           <td class="action-col">
@@ -122,7 +122,7 @@ export interface PriceRow {
   endTime: string
   electricityFee: number
   serviceFee: number
-  peakValleyType?: number  // 峰尖谷平: 1尖2峰3平4谷
+  peakValleyType?: number  // 峰谷类型: 1峰2尖3谷4平
 }
 
 const props = defineProps<{

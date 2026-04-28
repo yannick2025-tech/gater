@@ -84,7 +84,7 @@ type PriceConfig struct {
 	EndTime        string  // "HH:mm"
 	ElectricityFee float64 // 电费（元/kWh）
 	ServiceFee     float64 // 服务费（元/kWh）
-	PeakValleyType byte    // 峰尖谷平: 1尖2峰3平4谷
+	PeakValleyType byte    // 峰谷类型: 1峰2尖3谷4平
 }
 
 // ChargingState 充电过程状态

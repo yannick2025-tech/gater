@@ -8,6 +8,7 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/generator"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+	"github.com/yannick2025-tech/nts-gater/internal/session"
 	logging "github.com/yannick2025-tech/gwc-logging"
 )
 
@@ -179,14 +180,10 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 				h.logger.Infof("[%s] [GATER] [0x06] 校验 服务费计算[时段%d] PASS: expected=%.2f actual=%.2f", sid, i, expectedSvcFee, actualSvcFee)
 			}
 
-			// 2c. 峰谷标识校验：使用0x04下发时存储的类型（与时间匹配无关）
-			sentTypes := ctx.Session.GetSentPeakTypes()
-			if len(sentTypes) > 0 {
-				// 按时段索引取值（0x04下发的listFee与0x06上报的OverTimeAccumulateInformationList顺序一致）
-				gaterType := byte(0)
-				if i < len(sentTypes) {
-					gaterType = sentTypes[i]
-				}
+			// 2c. 峰谷标识校验：根据上报时段EndTime的HHmm去session费率配置中查找对应类型
+			prices := ctx.Session.GetPrices()
+			if len(prices) > 0 {
+				gaterType := h.findPeakTypeByEndTime(item.EndTime, prices)
 				if gaterType != item.PeaksValleysFlag {
 					ctx.Session.AddValidationResult(0x06, fmt.Sprintf("峰谷标识[时段%d]", i), false,
 						fmt.Sprintf("gaterType=%d pileType=%d", gaterType, item.PeaksValleysFlag))
@@ -203,6 +200,31 @@ func (h *ChargingHandler) HandleChargingDataUpload(ctx *dispatcher.Context) erro
 	// 回复确认
 	reply := &msg.ChargingDataReply{Confirm: 0x00}
 	return ctx.ReplyMessage(reply)
+}
+
+// findPeakTypeByEndTime 根据0x06上报时段的EndTime(HHmm)在session费率配置中精确匹配峰谷类型
+//
+// 0x06上报的EndTime格式: BCD[6]解码后的字符串如 "260428110000"(YYMMDDHHmmSS)
+// 取HHmm部分(如 "1100")，去session prices中找 EndTime=="11:00" 的规则，返回其 PeakValleyType
+func (h *ChargingHandler) findPeakTypeByEndTime(endTimeBCD string, prices []session.PriceConfig) byte {
+	if len(endTimeBCD) < 12 {
+		h.logger.Warnf("[charging] findPeakTypeByEndTime: endTimeBCD too short len=%d val=%q", len(endTimeBCD), endTimeBCD)
+		return 0
+	}
+	hhmm := endTimeBCD[8:12] // "HHmm"
+
+	// 将 "HHmm" 转为 "HH:mm" 用于匹配 PriceConfig.EndTime
+	endTimeFormatted := hhmm[:2] + ":" + hhmm[2:]
+
+	for _, p := range prices {
+		if p.EndTime == endTimeFormatted {
+			return p.PeakValleyType
+		}
+	}
+
+	h.logger.Warnf("[charging] findPeakTypeByEndTime: no match for endTimeBCD=%s hhmm=%s, returning 0",
+		endTimeBCD, hhmm)
+	return 0
 }
 
 // HandlePlatformStartDownload 处理平台下发0x03（下载方向，由业务API触发）

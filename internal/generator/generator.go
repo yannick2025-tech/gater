@@ -48,16 +48,16 @@ type FeeItem struct {
 	Min      byte   // BCD[1] 分钟
 	PowerFee uint32 // BYTE[3] 4位小数 (元/kWh)
 	SvcFee   uint32 // BYTE[3] 4位小数 (元/kWh)
-	Type     byte   // 尖峰谷平: 1尖2峰3平4谷
+	Type     byte   // 峰谷类型: 1峰2尖3谷4平
 	LimitedP uint16 // 限制功率 kW
 }
 
-// PeakValleyType 峰谷类型
+// PeakValleyType 峰谷类型（1峰2尖3谷4平）
 const (
-	PeakValleySharp byte = 1 // 尖
-	PeakValleyPeak  byte = 2 // 峰
-	PeakValleyFlat  byte = 3 // 平
-	PeakValleyValley byte = 4 // 谷
+	PeakValleyPeak   byte = 1 // 峰
+	PeakValleySharp  byte = 2 // 尖
+	PeakValleyValley byte = 3 // 谷
+	PeakValleyFlat   byte = 4 // 平
 )
 
 // PeakValleyNames 峰谷类型名称
@@ -73,9 +73,9 @@ func GenerateBillingRules() []FeeItem {
 	rules := make([]FeeItem, 0, 24)
 
 	hourTypes := [24]byte{
-		4, 4, 4, 4, 4, 3, 3, 3, // 0-7点: 谷/平
-		2, 2, 1, 1, 1, 1, 1, 1, // 8-15点: 峰/尖
-		1, 1, 2, 2, 2, 3, 3, 4, // 16-23点: 尖/峰/平/谷
+		4, 4, 4, 4, 4, 3, 3, 3, // 0-7点: 平/谷
+		2, 2, 1, 1, 1, 1, 1, 1, // 8-15点: 尖/峰
+		1, 1, 2, 2, 2, 4, 4, 4, // 16-23点: 峰/尖/平
 	}
 
 	for hour := 0; hour < 24; hour++ {
