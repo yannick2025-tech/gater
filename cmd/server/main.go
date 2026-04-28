@@ -263,7 +263,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	if header.EncryptFlag == 0x01 {
 		decryptedHeader := make([]byte, 12)
 		decryptedHeader[0] = header.StartByte
-		decryptedHeader[1] = proto.Version()
+		decryptedHeader[1] = header.Version
 		decryptedHeader[2] = header.FuncCode
 		decryptedHeader[3] = byte(header.PostNo)
 		decryptedHeader[4] = byte(header.PostNo >> 8)
@@ -299,7 +299,8 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		encryptFn := sess.GetEncryptFn()
 		replyHeader.PostNo = header.PostNo
 		replyHeader.Charger = header.Charger
-		replyHeader.Version = proto.Version()
+		// Version: 保持 handler 传入的版本号（充电桩上报的原始版本），
+		// 不再强制覆盖为 proto.Version()，以兼容多版本协议（如 v0x07+）
 		replyHeader.StartByte = proto.FrameConfig().StartByte
 
 		// 编码完整帧（用于日志打印完整hex）
@@ -368,9 +369,9 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			}
 
 			spec := dlMsg.Spec()
-			dlHeader := types.MessageHeader{
-				StartByte:   proto.FrameConfig().StartByte,
-				Version:     proto.Version(),
+		dlHeader := types.MessageHeader{
+			StartByte:   proto.FrameConfig().StartByte,
+			Version:     header.Version,
 				FuncCode:    spec.FuncCode,
 				PostNo:      header.PostNo,
 				Charger:     header.Charger,

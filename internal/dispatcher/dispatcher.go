@@ -53,7 +53,7 @@ func (c *Context) ReplyMessage(msg types.Message) error {
 	spec := msg.Spec()
 	header := types.MessageHeader{
 		StartByte:  c.Proto.FrameConfig().StartByte,
-		Version:    c.Proto.Version(),
+		Version:    c.Header.Version,
 		FuncCode:   spec.FuncCode,
 		PostNo:     c.PostNo,
 		Charger:    c.Charger,
