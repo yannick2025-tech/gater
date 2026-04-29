@@ -13,12 +13,116 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/database"
 	"github.com/yannick2025-tech/nts-gater/internal/model"
 	"github.com/yannick2025-tech/nts-gater/internal/recorder"
+	"github.com/yannick2025-tech/nts-gater/internal/session"
 )
 
 // GenerateScenarioID 生成测试场景UUID（每次startTest调用一次）
 func GenerateScenarioID() string {
 	return uuid.New().String()
 }
+
+// ==================== Session 持久化 ====================
+
+// SaveSession 持久化 Session 到 DB（实时）
+func SaveSession(sess *session.Session) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	s := &model.Session{
+		ID:           sess.ID,
+		PostNo:       sess.PostNo,
+		ConnID:       sess.ConnID,
+		AuthState:    sess.GetAuthState().String(),
+		IsOnline:     sess.IsConnected(),
+		ProtocolName: "XX标准协议",
+		ProtocolVer:  "v1.6.0",
+	}
+
+	// 使用 upsert：如果已存在则更新
+	result := db.Where("id = ?", s.ID).Assign(s).FirstOrCreate(s)
+	return result.Error
+}
+
+// UpdateSessionOnline 更新 Session 在线状态
+func UpdateSessionOnline(sessionID string, isOnline bool) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	updates := map[string]interface{}{
+		"is_online":  isOnline,
+		"updated_at": time.Now(),
+	}
+	if !isOnline {
+		now := time.Now()
+		updates["closed_at"] = &now
+	}
+	return db.Model(&model.Session{}).Where("id = ?", sessionID).Updates(updates).Error
+}
+
+// UpdateSessionAuthState 更新 Session 认证状态
+func UpdateSessionAuthState(sessionID string, authState string) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return db.Model(&model.Session{}).Where("id = ?", sessionID).
+		Updates(map[string]interface{}{"auth_state": authState, "updated_at": time.Now()}).Error
+}
+
+// CleanStaleSessions 启动时清理僵尸 session（上次服务崩溃未正常关闭的）
+func CleanStaleSessions() error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	now := time.Now()
+	result := db.Model(&model.Session{}).Where("is_online = ?", true).
+		Updates(map[string]interface{}{"is_online": false, "closed_at": &now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		fmt.Printf("[CleanStaleSessions] cleaned %d stale sessions\n", result.RowsAffected)
+	}
+	return nil
+}
+
+// GetSessionsFromDB 从 DB 获取所有 session（分页）
+func GetSessionsFromDB(page int, pageSize int) ([]model.Session, int64, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	var total int64
+	db.Model(&model.Session{}).Count(&total)
+
+	var sessions []model.Session
+	offset := (page - 1) * pageSize
+	if err := db.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&sessions).Error; err != nil {
+		return nil, 0, err
+	}
+	return sessions, total, nil
+}
+
+// GetAllSessionsFromDB 从 DB 获取所有 session
+func GetAllSessionsFromDB() ([]model.Session, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var sessions []model.Session
+	if err := db.Order("created_at DESC").Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+// ==================== TestReport 持久化 ====================
 
 // CreateRunningReport 在测试开始时插入一条 running 占位记录到数据库
 func CreateRunningReport(sessionID string, postNo uint32, testCase string, scenarioID string) error {
@@ -29,25 +133,30 @@ func CreateRunningReport(sessionID string, postNo uint32, testCase string, scena
 	now := time.Now()
 
 	protocolName := "XX标准协议"
+	scenarioName := ""
 	switch testCase {
 	case "basic_charging":
 		protocolName = "XX标准协议-基础充电测试"
+		scenarioName = "基础充电测试"
 	case "sftp_upgrade":
 		protocolName = "XX标准协议-SFTP升级测试"
+		scenarioName = "SFTP升级测试"
 	case "config_download":
 		protocolName = "XX标准协议-配置下发测试"
+		scenarioName = "配置下发测试"
 	}
 
 	report := &model.TestReport{
-		SessionID:     sessionID,
-		ScenarioID:    scenarioID,
-		PostNo:        postNo,
-		ProtocolName:  protocolName,
-		ProtocolVer:   "v1.6.0",
-		StartTime:     now,
-		EndTime:       time.Time{},
-		Status:        "running",
-		AuthState:     "",
+		SessionID:    sessionID,
+		ScenarioID:   scenarioID,
+		ScenarioName: scenarioName,
+		PostNo:       postNo,
+		ProtocolName: protocolName,
+		ProtocolVer:  "v1.6.0",
+		StartTime:    now,
+		EndTime:      time.Time{},
+		Status:       "running",
+		AuthState:    "",
 	}
 	if err := db.Create(report).Error; err != nil {
 		return fmt.Errorf("create running report failed: %w", err)
@@ -88,6 +197,7 @@ func GetTestReportsBySessionID(sessionID string) ([]model.TestReport, error) {
 	}
 	return reports, nil
 }
+
 // SaveReport 保存/更新测试报告到数据库（会话断开时调用）
 // 将该会话下所有 running 状态的场景报告更新为 completed
 // rec 参数可选：传入时将 Recorder 中所有报文记录批量刷写到 message_archives 表（兜底补偿）
@@ -99,8 +209,8 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 
 	// 1. 批量更新该会话下所有 running 状态的报告为 completed
 	updates := map[string]interface{}{
-		"end_time":     summary.EndTime,
-		"duration_ms":  summary.Duration.Milliseconds(),
+		"end_time":       summary.EndTime,
+		"duration_ms":    summary.Duration.Milliseconds(),
 		"total_messages": summary.TotalMessages,
 		"success_total":  summary.SuccessTotal,
 		"fail_total":     summary.FailTotal,
@@ -128,6 +238,7 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 			DecodeFail:    stat.DecodeFail,
 			InvalidField:  stat.InvalidField,
 			MessageLoss:   stat.MessageLoss,
+			BusinessFail:  stat.BusinessFail,
 			SuccessRate:   stat.SuccessRate(),
 		}
 		if err := db.Create(fcStat).Error; err != nil {
@@ -136,7 +247,6 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 	}
 
 	// 3. 批量刷写 Recorder 的所有报文记录到 message_archives（兜底补偿）
-	// 运行时的实时异步写入可能因竞态/时序丢失部分数据，此处确保完整性
 	if rec != nil {
 		records := rec.GetAllRecords()
 		if len(records) > 0 {
@@ -144,6 +254,7 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 			for i, r := range records {
 				archives[i] = model.MessageArchive{
 					SessionID: summary.SessionID,
+					CaseID:    r.CaseID,
 					FuncCode:  recorder.FormatFuncCode(r.FuncCode),
 					Direction: recorder.FormatDirection(r.Direction),
 					Status:    string(r.Status),
@@ -153,20 +264,231 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 					Timestamp: r.Timestamp,
 				}
 			}
-			// 批量插入（使用 Clauses ON DUPLICATE KEY IGNORE 避免与实时写入冲突）
 			if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&archives).Error; err != nil {
 				fmt.Printf("[SaveReport] batch flush message archives warning: %v\n", err)
-				// 不返回错误，报告本身已保存成功
 			} else {
 				fmt.Printf("[SaveReport] batch flushed %d message archives for session %s\n", len(archives), summary.SessionID)
 			}
 		}
 	}
 
+	// 4. 聚合用例级统计 → 更新 test_cases 表
+	aggregateTestCases(db, summary.SessionID)
+
+	// 5. 聚合场景级统计 → 更新 test_reports 表
+	aggregateTestReports(db, summary.SessionID)
+
 	return nil
 }
 
-// SaveMessageArchive 保存单条消息存档
+// aggregateTestCases 聚合用例级统计
+func aggregateTestCases(db *gorm.DB, sessionID string) {
+	// 获取该 session 下所有 test_cases
+	var cases []model.TestCase
+	if err := db.Where("session_id = ?", sessionID).Find(&cases).Error; err != nil {
+		return
+	}
+
+	for _, tc := range cases {
+		// 按 case_id 统计报文
+		var msgStats struct {
+			Total int
+			Ok    int
+			DF    int
+			IF    int
+			BF    int
+		}
+		db.Model(&model.MessageArchive{}).
+			Where("session_id = ? AND case_id = ?", sessionID, tc.CaseID).
+			Select("COUNT(*) as total").
+			Select("SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as ok").
+			Select("SUM(CASE WHEN status = 'decode_fail' THEN 1 ELSE 0 END) as df").
+			Select("SUM(CASE WHEN status = 'invalid_field' THEN 1 ELSE 0 END) as if").
+			Select("SUM(CASE WHEN status = 'business_fail' THEN 1 ELSE 0 END) as bf").
+			Scan(&msgStats)
+
+		successRate := 0.0
+		if msgStats.Total > 0 {
+			successRate = float64(msgStats.Ok) / float64(msgStats.Total) * 100
+		}
+
+		result := "pass"
+		if msgStats.Total > 0 && successRate < 100 {
+			result = "fail"
+		}
+
+		db.Model(&model.TestCase{}).Where("id = ?", tc.ID).Updates(map[string]interface{}{
+			"total_messages": msgStats.Total,
+			"success_count":  msgStats.Ok,
+			"decode_fail":    msgStats.DF,
+			"invalid_field":  msgStats.IF,
+			"business_fail":  msgStats.BF,
+			"success_rate":   successRate,
+			"result":         result,
+			"status":         "completed",
+			"end_time":       time.Now(),
+		})
+	}
+}
+
+// aggregateTestReports 聚合场景级统计
+func aggregateTestReports(db *gorm.DB, sessionID string) {
+	var reports []model.TestReport
+	if err := db.Where("session_id = ?", sessionID).Find(&reports).Error; err != nil {
+		return
+	}
+
+	for _, r := range reports {
+		var caseStats struct {
+			Total   int
+			Passed  int
+			Failed  int
+			Skipped int
+		}
+		db.Model(&model.TestCase{}).
+			Where("session_id = ? AND scenario_id = ?", sessionID, r.ScenarioID).
+			Select("COUNT(*) as total").
+			Select("SUM(CASE WHEN result = 'pass' THEN 1 ELSE 0 END) as passed").
+			Select("SUM(CASE WHEN result = 'fail' THEN 1 ELSE 0 END) as failed").
+			Select("SUM(CASE WHEN result = 'skipped' THEN 1 ELSE 0 END) as skipped").
+			Scan(&caseStats)
+
+		var failStats struct {
+			DF int
+			IF int
+			BF int
+		}
+		db.Model(&model.MessageArchive{}).
+			Where("session_id = ?", sessionID).
+			Select("SUM(CASE WHEN status = 'decode_fail' THEN 1 ELSE 0 END) as df").
+			Select("SUM(CASE WHEN status = 'invalid_field' THEN 1 ELSE 0 END) as if").
+			Select("SUM(CASE WHEN status = 'business_fail' THEN 1 ELSE 0 END) as bf").
+			Scan(&failStats)
+
+		db.Model(&model.TestReport{}).Where("id = ?", r.ID).Updates(map[string]interface{}{
+			"total_cases":         caseStats.Total,
+			"passed_cases":        caseStats.Passed,
+			"failed_cases":        caseStats.Failed,
+			"skipped_cases":       caseStats.Skipped,
+			"decode_fail_count":   failStats.DF,
+			"invalid_field_count": failStats.IF,
+			"business_fail_count": failStats.BF,
+		})
+	}
+}
+
+// ==================== TestCase 持久化 ====================
+
+// SaveTestCase 创建或更新用例记录（实时）
+func SaveTestCase(tc *model.TestCase) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// 按 (session_id, case_id) 查找已有记录，存在则更新
+	var existing model.TestCase
+	result := db.Where("session_id = ? AND case_id = ?", tc.SessionID, tc.CaseID).First(&existing)
+	if result.Error == nil {
+		// 已存在，更新
+		return db.Model(&existing).Updates(map[string]interface{}{
+			"scenario_id":   tc.ScenarioID,
+			"scenario_name": tc.ScenarioName,
+			"case_name":     tc.CaseName,
+			"case_type":     tc.CaseType,
+			"status":        tc.Status,
+			"start_time":    tc.StartTime,
+		}).Error
+	}
+	// 不存在，创建
+	return db.Create(tc).Error
+}
+
+// UpdateTestCaseStatus 更新用例状态
+func UpdateTestCaseStatus(sessionID string, caseID string, status string, result string) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	updates := map[string]interface{}{"status": status, "updated_at": time.Now()}
+	if result != "" {
+		updates["result"] = result
+	}
+	if status == "completed" {
+		updates["end_time"] = time.Now()
+	}
+	return db.Model(&model.TestCase{}).
+		Where("session_id = ? AND case_id = ?", sessionID, caseID).
+		Updates(updates).Error
+}
+
+// GetTestCasesBySessionID 获取某 session 下所有用例
+func GetTestCasesBySessionID(sessionID string) ([]model.TestCase, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var cases []model.TestCase
+	if err := db.Where("session_id = ?", sessionID).Order("created_at ASC").Find(&cases).Error; err != nil {
+		return nil, err
+	}
+	return cases, nil
+}
+
+// GetTestCasesByScenarioID 获取某场景下所有用例
+func GetTestCasesByScenarioID(sessionID string, scenarioID string) ([]model.TestCase, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var cases []model.TestCase
+	if err := db.Where("session_id = ? AND scenario_id = ?", sessionID, scenarioID).Order("created_at ASC").Find(&cases).Error; err != nil {
+		return nil, err
+	}
+	return cases, nil
+}
+
+// ==================== ValidationResult 持久化 ====================
+
+// SaveValidationResult 保存校验结果（实时）
+func SaveValidationResult(vr *model.ValidationResult) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return db.Create(vr).Error
+}
+
+// GetValidationResultsBySessionID 获取某 session 下所有校验结果
+func GetValidationResultsBySessionID(sessionID string) ([]model.ValidationResult, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var results []model.ValidationResult
+	if err := db.Where("session_id = ?", sessionID).Order("created_at ASC").Find(&results).Error; err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// GetValidationResultsByCaseID 获取某用例下所有校验结果
+func GetValidationResultsByCaseID(sessionID string, caseID string) ([]model.ValidationResult, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var results []model.ValidationResult
+	if err := db.Where("session_id = ? AND case_id = ?", sessionID, caseID).Order("created_at ASC").Find(&results).Error; err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// ==================== MessageArchive 持久化 ====================
+
+// SaveMessageArchive 保存单条消息存档（去重写入）
+// 规则：同 (session_id, case_id, func_code, direction, status) 只保留最新一条
 func SaveMessageArchive(sessionID string, rec recorder.MessageRecord) error {
 	db := database.GetDB()
 	if db == nil {
@@ -175,6 +497,7 @@ func SaveMessageArchive(sessionID string, rec recorder.MessageRecord) error {
 
 	archive := &model.MessageArchive{
 		SessionID: sessionID,
+		CaseID:    rec.CaseID,
 		FuncCode:  recorder.FormatFuncCode(rec.FuncCode),
 		Direction: recorder.FormatDirection(rec.Direction),
 		Status:    string(rec.Status),
@@ -184,11 +507,96 @@ func SaveMessageArchive(sessionID string, rec recorder.MessageRecord) error {
 		Timestamp: rec.Timestamp,
 	}
 
+	return UpsertMessageArchive(archive)
+}
+
+// UpsertMessageArchive 去重写入报文存档
+// 规则：同一 (session_id, case_id, func_code, direction, status) 只保留最新一条
+func UpsertMessageArchive(archive *model.MessageArchive) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// 先删后插（简单可靠）
+	db.Where(
+		"session_id = ? AND case_id = ? AND func_code = ? AND direction = ? AND status = ?",
+		archive.SessionID, archive.CaseID, archive.FuncCode, archive.Direction, archive.Status,
+	).Delete(&model.MessageArchive{})
+
 	return db.Create(archive).Error
 }
 
+// GetMessageArchivesBySessionID 根据SessionID获取消息存档
+func GetMessageArchivesBySessionID(sessionID string, funcCode string, status string) ([]model.MessageArchive, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	query := db.Where("session_id = ?", sessionID)
+	if funcCode != "" {
+		query = query.Where("func_code = ?", funcCode)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	var archives []model.MessageArchive
+	if err := query.Order("timestamp ASC").Find(&archives).Error; err != nil {
+		return nil, err
+	}
+	return archives, nil
+}
+
+// GetMessageArchivesByCaseID 根据 caseID 获取消息存档
+func GetMessageArchivesByCaseID(sessionID string, caseID string) ([]model.MessageArchive, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var archives []model.MessageArchive
+	if err := db.Where("session_id = ? AND case_id = ?", sessionID, caseID).
+		Order("timestamp ASC").Find(&archives).Error; err != nil {
+		return nil, err
+	}
+	return archives, nil
+}
+
+// ==================== FuncCodeStat 持久化 ====================
+
+// UpsertFuncCodeStat 创建或更新功能码统计（实时）
+func UpsertFuncCodeStat(stat *model.FuncCodeStat) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// 按 (session_id, func_code, direction, case_id) 查找，存在则更新
+	var existing model.FuncCodeStat
+	result := db.Where("session_id = ? AND func_code = ? AND direction = ? AND (case_id = ? OR (case_id = '' AND ? = ''))",
+		stat.SessionID, stat.FuncCode, stat.Direction, stat.CaseID, stat.CaseID).First(&existing)
+
+	if result.Error == nil {
+		// 已存在，更新
+		return db.Model(&existing).Updates(map[string]interface{}{
+			"total_messages": stat.TotalMessages,
+			"success_count":  stat.SuccessCount,
+			"decode_fail":    stat.DecodeFail,
+			"invalid_field":  stat.InvalidField,
+			"message_loss":   stat.MessageLoss,
+			"business_fail":  stat.BusinessFail,
+			"success_rate":   stat.SuccessRate,
+		}).Error
+	}
+	// 不存在，创建
+	return db.Create(stat).Error
+}
+
+// ==================== 通用查询 ====================
+
 // GetTestReports 查询测试报告列表
-// sessionID 非空时按会话过滤（用于直接访问某会话详情页）
 func GetTestReports(page int, pageSize int, startTime *time.Time, endTime *time.Time, sessionID string) ([]model.TestReport, int64, error) {
 	db := database.GetDB()
 	if db == nil {
@@ -196,7 +604,6 @@ func GetTestReports(page int, pageSize int, startTime *time.Time, endTime *time.
 	}
 
 	query := db.Model(&model.TestReport{})
-	// 按会话ID精确过滤
 	if sessionID != "" {
 		query = query.Where("session_id = ?", sessionID)
 	}
@@ -249,38 +656,15 @@ func GetFuncCodeStatsBySessionID(sessionID string) ([]model.FuncCodeStat, error)
 	return stats, nil
 }
 
-// GetMessageArchivesBySessionID 根据SessionID获取消息存档
-func GetMessageArchivesBySessionID(sessionID string, funcCode string, status string) ([]model.MessageArchive, error) {
-	db := database.GetDB()
-	if db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	query := db.Where("session_id = ?", sessionID)
-	if funcCode != "" {
-		query = query.Where("func_code = ?", funcCode)
-	}
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-
-	var archives []model.MessageArchive
-	if err := query.Order("timestamp ASC").Find(&archives).Error; err != nil {
-		return nil, err
-	}
-	return archives, nil
-}
-
 // GetDeviceOnlineStatus 获取设备在线状态
 func GetDeviceOnlineStatus(postNo uint32) bool {
-	// 通过数据库查找最近报告判断是否在线
 	db := database.GetDB()
 	if db == nil {
 		return false
 	}
 
-	var report model.TestReport
-	err := db.Where("post_no = ? AND status = 'active'", postNo).First(&report).Error
+	var s model.Session
+	err := db.Where("post_no = ? AND is_online = ?", postNo, true).First(&s).Error
 	return err == nil
 }
 
@@ -295,17 +679,17 @@ func UpdateReportPDFPath(sessionID string, pdfPath string) error {
 		Update("pdf_path", pdfPath).Error
 }
 
-// GetAllSessionSummaries 获取所有会话摘要（用于会话列表展示，合并活跃+历史）
-func GetAllSessionSummaries() ([]model.TestReport, error) {
+// GetAllSessionSummaries 获取所有会话摘要（从 sessions 表读取）
+func GetAllSessionSummaries() ([]model.Session, error) {
 	db := database.GetDB()
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	var reports []model.TestReport
-	if err := db.Order("start_time DESC").Find(&reports).Error; err != nil {
+	var sessions []model.Session
+	if err := db.Order("created_at DESC").Find(&sessions).Error; err != nil {
 		return nil, err
 	}
-	return reports, nil
+	return sessions, nil
 }
 
 // Ensure interface compliance

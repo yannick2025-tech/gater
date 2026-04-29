@@ -171,6 +171,11 @@ func (r *Router) SetupAPI(engine *gin.Engine) {
 		api.POST("/test/export", r.exportReport)
 		api.GET("/test/download", r.downloadPDF)
 		api.POST("/test/config", r.configDownload)
+
+		// 新增接口：用例 + 校验结果 + HTML 报告
+		api.GET("/test/cases/:sessionId", r.getTestCases)
+		api.GET("/test/validations/:sessionId", r.getValidationResults)
+		api.GET("/reports/:sessionId/html", r.getHTMLReport)
 	}
 }
 
@@ -335,59 +340,62 @@ func (r *Router) getDeviceStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": respData})
 }
 
-// getSessions 获取所有TCP会话列表（活跃内存会话 + 数据库历史会话）
+// getSessions 获取所有会话列表（DB 为唯一数据源，内存仅判断在线状态）
 // GET /api/sessions
 func (r *Router) getSessions(c *gin.Context) {
-	// 1. 收集内存中活跃的session（用于去重）
-	activeSessionIDs := make(map[string]bool)
+	// 1. 从 DB 的 sessions 表读取所有会话
+	dbSessions, err := report.GetAllSessionsFromDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "query sessions failed"})
+		return
+	}
 
-	// 2. 内存中的活跃会话
+	// 2. 收集内存中活跃 session 的在线状态（用于实时更新）
+	activeSessionIDs := make(map[string]bool)
 	sessions := r.sessMgr.GetAllSessions()
-	list := make([]gin.H, 0, len(sessions))
 	for _, sess := range sessions {
-		authState := sess.GetAuthState().String()
-		item := gin.H{
-			"sessionId":       sess.ID,
-			"postNo":          sess.PostNo,
-			"gunNumber":       fmt.Sprintf("%d", sess.PostNo),
-			"authState":       authState,
-			"isOnline":        sess.IsConnected(),
-			"protocolName":    "XX标准协议",
-			"protocolVersion": "v1.6.0",
-			"connectedAt":     sess.CreatedAt.Format("2006-01-02 15:04:05"),
-			"lastActive":      sess.LastActive.Format("2006-01-02 15:04:05"),
+		activeSessionIDs[sess.ID] = true
+	}
+
+	// 3. 组装响应
+	list := make([]gin.H, 0, len(dbSessions))
+	for _, s := range dbSessions {
+		// 如果内存中有活跃 session，以内存中的在线状态为准
+		isOnline := s.IsOnline
+		if activeSessionIDs[s.ID] {
+			if sess, ok := r.sessMgr.Get(s.ID); ok {
+				isOnline = sess.IsConnected()
+			}
 		}
+
+		// 补充认证状态（内存中可能更新了）
+		authState := s.AuthState
+		if sess, ok := r.sessMgr.Get(s.ID); ok {
+			authState = sess.GetAuthState().String()
+		}
+
+		item := gin.H{
+			"sessionId":       s.ID,
+			"postNo":          s.PostNo,
+			"gunNumber":       fmt.Sprintf("%d", s.PostNo),
+			"authState":       authState,
+			"isOnline":        isOnline,
+			"protocolName":    s.ProtocolName,
+			"protocolVersion": s.ProtocolVer,
+			"connectedAt":     s.CreatedAt.Format("2006-01-02 15:04:05"),
+			"lastActive":      s.UpdatedAt.Format("2006-01-02 15:04:05"),
+		}
+
 		// 补充测试状态（如正在运行场景）
-		if sc, ok := r.scenarioEngine.GetScenario(sess.ID); ok {
+		if sc, ok := r.scenarioEngine.GetScenario(s.ID); ok {
 			if result := sc.Result(); result != nil {
 				item["testStatus"] = string(result.State)
 				item["testCase"] = result.ScenarioName
 				item["testProgress"] = result.Progress
 			}
 		}
-		list = append(list, item)
-		activeSessionIDs[sess.ID] = true
-	}
 
-	// 3. 从数据库加载历史会话报告（补充不在内存中的已结束会话）
-	if dbReports, err := report.GetAllSessionSummaries(); err == nil {
-		for _, rep := range dbReports {
-			// 跳过已在内存中活跃的session，避免重复
-			if activeSessionIDs[rep.SessionID] {
-				continue
-			}
-			list = append(list, gin.H{
-				"sessionId":       rep.SessionID,
-				"postNo":          rep.PostNo,
-				"gunNumber":       fmt.Sprintf("%d", rep.PostNo),
-				"authState":       rep.AuthState,
-				"isOnline":        false,
-				"protocolName":    rep.ProtocolName,
-				"protocolVersion": rep.ProtocolVer,
-				"connectedAt":     rep.StartTime.Format("2006-01-02 15:04:05"),
-				"lastActive":      rep.EndTime.Format("2006-01-02 15:04:05"),
-			})
-		}
+		list = append(list, item)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -662,6 +670,18 @@ func (r *Router) stopTest(c *gin.Context) {
 				break // 只更新最新的一条 running 记录
 			}
 		}
+
+		// ★ 立即保存当前统计快照到DB（不等待断开连接）
+		// 这样用户在停止充电后、断开前查看详情，也能看到完整的统计数据
+		if sess, ok := r.sessMgr.Get(req.SessionID); ok && sess.Recorder != nil {
+			summary := sess.Recorder.Summary()
+			authState := sess.GetAuthState().String()
+			if err := report.SaveReport(summary, "XX标准协议", "v1.6.0", authState, sess.Recorder); err != nil {
+				r.logger.Errorf("[stopTest] partial save report error: %v", err)
+			} else {
+				r.logger.Infof("[stopTest] stats snapshot saved for session %s", req.SessionID)
+			}
+		}
 	}()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -674,76 +694,112 @@ func (r *Router) stopTest(c *gin.Context) {
 }
 
 // getChargingInfo 查询充电信息（前端定时轮询）
+// DB 优先：校验结果从 validation_results 表读取，充电状态从内存补充
 // GET /api/test/charging-info/:sessionId
 func (r *Router) getChargingInfo(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
 	sess, ok := r.sessMgr.Get(sessionID)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "session not found"})
-		return
-	}
-
-	cs := sess.GetChargingState()
-	prices := sess.GetPrices()
 
 	result := gin.H{
 		"sessionId": sessionID,
-		"isOnline":  sess.IsConnected(),
+		"isOnline":  false,
 	}
 
-	// 时段费用配置
-	priceList := make([]gin.H, len(prices))
-	for i, p := range prices {
-		priceList[i] = gin.H{
-			"startTime":     p.StartTime,
-			"endTime":       p.EndTime,
-			"electricityFee": p.ElectricityFee,
-			"serviceFee":    p.ServiceFee,
+	// 在线状态从内存判断
+	if ok {
+		result["isOnline"] = sess.IsConnected()
+	} else {
+		// 内存中无，从 DB sessions 表判断
+		dbSess, err := report.GetAllSessionsFromDB()
+		if err == nil {
+			for _, s := range dbSess {
+				if s.ID == sessionID {
+					result["isOnline"] = s.IsOnline
+					break
+				}
+			}
 		}
 	}
-	result["prices"] = priceList
 
-	if cs != nil {
-		chargingInfo := gin.H{
-			"platformStartTime":  formatTime(cs.PlatformStartTime),
-			"firstDataTime":      formatTime(cs.FirstDataTime),
-			"lastDataTime":       formatTime(cs.LastDataTime),
-			"platformStopTime":   formatTimeMs(cs.PlatformStopTime),
-			"chargerStartTime":   cs.ChargerStartTime,
-			"chargerStopTime":    cs.ChargerStopTime,
-			"chargingOrderNo":    cs.ChargingOrderNo,
-			"currentElec":        cs.CurrentElec,
-			"currentSOC":         cs.CurrentSOC,
-			"stopSOC":            cs.StopSOC,
-			"chargingDataCount":  cs.ChargingDataCount,
-			"isChargingStopped":  cs.IsChargingStopped,
-		}
-		// 充电时长（秒）
-		if !cs.FirstDataTime.IsZero() {
-			endT := time.Now()
-			if cs.IsChargingStopped && !cs.LastDataTime.IsZero() {
-				endT = cs.LastDataTime
-			}
-			duration := endT.Sub(cs.FirstDataTime)
-			chargingInfo["chargingDurationSec"] = int(duration.Seconds())
-		}
-		result["chargingInfo"] = chargingInfo
-
-		// 校验结果摘要
-		passCount := 0
-		failCount := 0
-		for _, v := range cs.ValidationResults {
-			if v.Passed {
-				passCount++
-			} else {
-				failCount++
+	// 时段费用配置（优先内存，再 DB）
+	if ok {
+		prices := sess.GetPrices()
+		priceList := make([]gin.H, len(prices))
+		for i, p := range prices {
+			priceList[i] = gin.H{
+				"startTime":     p.StartTime,
+				"endTime":       p.EndTime,
+				"electricityFee": p.ElectricityFee,
+				"serviceFee":    p.ServiceFee,
 			}
 		}
-		result["validationSummary"] = gin.H{
-			"total": len(cs.ValidationResults),
-			"pass":  passCount,
-			"fail":  failCount,
+		result["prices"] = priceList
+	}
+
+	// 充电信息（优先内存，再 DB）
+	if ok {
+		cs := sess.GetChargingState()
+		if cs != nil {
+			chargingInfo := gin.H{
+				"platformStartTime":  formatTime(cs.PlatformStartTime),
+				"firstDataTime":      formatTime(cs.FirstDataTime),
+				"lastDataTime":       formatTime(cs.LastDataTime),
+				"platformStopTime":   formatTimeMs(cs.PlatformStopTime),
+				"chargerStartTime":   cs.ChargerStartTime,
+				"chargerStopTime":    cs.ChargerStopTime,
+				"chargingOrderNo":    cs.ChargingOrderNo,
+				"currentElec":        cs.CurrentElec,
+				"currentSOC":         cs.CurrentSOC,
+				"stopSOC":            cs.StopSOC,
+				"chargingDataCount":  cs.ChargingDataCount,
+				"isChargingStopped":  cs.IsChargingStopped,
+			}
+			if !cs.FirstDataTime.IsZero() {
+				endT := time.Now()
+				if cs.IsChargingStopped && !cs.LastDataTime.IsZero() {
+					endT = cs.LastDataTime
+				}
+				duration := endT.Sub(cs.FirstDataTime)
+				chargingInfo["chargingDurationSec"] = int(duration.Seconds())
+			}
+			result["chargingInfo"] = chargingInfo
+
+			// 校验结果摘要（内存）
+			passCount := 0
+			failCount := 0
+			for _, v := range cs.ValidationResults {
+				if v.Passed {
+					passCount++
+				} else {
+					failCount++
+				}
+			}
+			result["validationSummary"] = gin.H{
+				"total": len(cs.ValidationResults),
+				"pass":  passCount,
+				"fail":  failCount,
+			}
+		}
+	} else {
+		// 从 DB 读校验结果
+		validations, err := report.GetValidationResultsBySessionID(sessionID)
+		if err == nil && len(validations) > 0 {
+			passCount := 0
+			failCount := 0
+			for _, v := range validations {
+				if v.Passed {
+					passCount++
+				} else {
+					failCount++
+				}
+			}
+			result["validationSummary"] = gin.H{
+				"total": len(validations),
+				"pass":  passCount,
+				"fail":  failCount,
+			}
+			result["validations"] = validations
 		}
 	}
 
@@ -766,51 +822,37 @@ func formatTimeMs(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05.000")
 }
 
-// getTestStatus 查询测试进度
+// getTestStatus 查询测试进度（DB 优先，内存补充在线场景信息）
 // GET /api/test/status/:sessionId
 func (r *Router) getTestStatus(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
-	// 1. 先尝试从内存获取session
-	sess, ok := r.sessMgr.Get(sessionID)
-	if !ok {
-		// 2. session已不在内存中（已被断开/超时移除）→ 查数据库
-		testReport, err := report.GetTestReportBySessionID(sessionID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
-			return
-		}
-		// 返回数据库中的最终状态
-		status := "completed"
-		if !testReport.IsPass && testReport.FailTotal > 0 {
-			status = "failed"
-		}
+	// 1. 先尝试从内存获取活跃场景
+	if sc, ok := r.scenarioEngine.GetScenario(sessionID); ok {
+		result := sc.Result()
 		c.JSON(http.StatusOK, gin.H{
 			"code": 200,
 			"data": gin.H{
 				"sessionId": sessionID,
-				"status":    status,
-				"progress":  100,
-				"stepName":  "已完成",
-				"testCase":  "",
+				"status":    string(result.State),
+				"progress":  result.Progress,
+				"stepName":  result.StepName,
+				"testCase":  result.ScenarioName,
 			},
 		})
 		return
 	}
 
-	status := "connected"
-	progress := 0
-	stepName := ""
-	testCase := ""
+	// 2. 从 DB 查询
+	testReport, err := report.GetTestReportBySessionID(sessionID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
+		return
+	}
 
-	if sc, ok := r.scenarioEngine.GetScenario(sessionID); ok {
-		result := sc.Result()
-		status = string(result.State)
-		progress = result.Progress
-		stepName = result.StepName
-		testCase = result.ScenarioName
-	} else if sess.Recorder != nil && sess.Recorder.EndTime().IsZero() {
-		status = "connected"
+	status := "completed"
+	if !testReport.IsPass && testReport.FailTotal > 0 {
+		status = "failed"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -818,9 +860,9 @@ func (r *Router) getTestStatus(c *gin.Context) {
 		"data": gin.H{
 			"sessionId": sessionID,
 			"status":    status,
-			"progress":  progress,
-			"stepName":  stepName,
-			"testCase":  testCase,
+			"progress":  100,
+			"stepName":  "已完成",
+			"testCase":  testReport.ScenarioName,
 		},
 	})
 }
@@ -863,17 +905,15 @@ func (r *Router) getTestResults(c *gin.Context) {
 	})
 }
 
-// getTestDetail 获取测试详情
-// GET /api/test/detail/:sessionId
-// 即使报告不存在也返回 200（避免前端 axios 拦截器弹"请求的资源不存在"）
+// getTestDetail 获取测试详情（始终从 DB 读取）
 func (r *Router) getTestDetail(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
+	// 从数据库查询
 	testReport, err := report.GetTestReportBySessionID(sessionID)
-
 	stats, _ := report.GetFuncCodeStatsBySessionID(sessionID)
+	cases, _ := report.GetTestCasesBySessionID(sessionID)
 
-	// 报告存在时用实际数据，不存在时返回空默认值（status=running 表示尚未入库完成）
 	startTime := time.Time{}
 	endTime := time.Time{}
 	status := "running"
@@ -887,6 +927,12 @@ func (r *Router) getTestDetail(c *gin.Context) {
 		}
 	}
 
+	// 补充在线状态（内存中判断）
+	isOnline := false
+	if sess, ok := r.sessMgr.Get(sessionID); ok {
+		isOnline = sess.IsConnected()
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
@@ -895,17 +941,20 @@ func (r *Router) getTestDetail(c *gin.Context) {
 			"endTime":    endTime,
 			"status":     status,
 			"statistics": stats,
+			"cases":      cases,
+			"isLive":     isOnline,
 		},
 	})
 }
 
-// getMessages 获取会话的所有报文存档
+// getMessages 获取会话的所有报文存档（始终从 DB 读取）
 // GET /api/test/messages/:sessionId?funcCode=&status=
 func (r *Router) getMessages(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 	funcCode := c.Query("funcCode")
 	status := c.Query("status")
 
+	// 始终从数据库查询
 	archives, err := report.GetMessageArchivesBySessionID(sessionID, funcCode, status)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"list": []interface{}{}}})
@@ -916,12 +965,12 @@ func (r *Router) getMessages(c *gin.Context) {
 		archives = []model.MessageArchive{}
 	}
 
-	// Convert to JSON-friendly format
 	list := make([]gin.H, len(archives))
 	for i, a := range archives {
 		list[i] = gin.H{
 			"id":        a.ID,
 			"sessionId": sessionID,
+			"caseId":    a.CaseID,
 			"funcCode":  a.FuncCode,
 			"direction": a.Direction,
 			"status":    a.Status,
@@ -955,7 +1004,7 @@ func (r *Router) decodeMessage(c *gin.Context) {
 	})
 }
 
-// exportReport 导出测试报告
+// exportReport 导出测试报告（生成 HTML）
 // POST /api/test/export
 // Body: {"sessionId": "sess-1"}
 func (r *Router) exportReport(c *gin.Context) {
@@ -967,35 +1016,24 @@ func (r *Router) exportReport(c *gin.Context) {
 		return
 	}
 
-	testReport, err := report.GetTestReportBySessionID(req.SessionID)
+	htmlPath, err := report.GenerateHTML(req.SessionID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "report not found"})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate html failed: " + err.Error()})
 		return
 	}
-
-	stats, _ := report.GetFuncCodeStatsBySessionID(req.SessionID)
-	archives, _ := report.GetMessageArchivesBySessionID(req.SessionID, "", "")
-
-	pdfPath, err := report.GeneratePDF(testReport, stats, archives)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate pdf failed: " + err.Error()})
-		return
-	}
-
-	_ = report.UpdateReportPDFPath(req.SessionID, pdfPath)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
 			"sessionId": req.SessionID,
-			"pdfUrl":    "/api/test/download?path=" + pdfPath,
-			"pdfPath":   pdfPath,
+			"htmlUrl":   "/api/reports/" + req.SessionID + "/html",
+			"htmlPath":  htmlPath,
 		},
 	})
 }
 
-// downloadPDF 下载PDF文件
-// GET /api/test/download?path=reports/report_xxx.pdf
+// downloadPDF 下载PDF/HTML文件
+// GET /api/test/download?path=reports/report_xxx.html
 func (r *Router) downloadPDF(c *gin.Context) {
 	path := c.Query("path")
 	if path == "" {
@@ -1008,6 +1046,61 @@ func (r *Router) downloadPDF(c *gin.Context) {
 	}
 
 	c.File(path)
+}
+
+// getTestCases 获取某 session 下所有用例列表
+// GET /api/test/cases/:sessionId
+func (r *Router) getTestCases(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+
+	cases, err := report.GetTestCasesBySessionID(sessionID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"list": []interface{}{}}})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"sessionId": sessionID,
+			"list":      cases,
+		},
+	})
+}
+
+// getValidationResults 获取某 session 下所有校验结果
+// GET /api/test/validations/:sessionId
+func (r *Router) getValidationResults(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+
+	results, err := report.GetValidationResultsBySessionID(sessionID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"list": []interface{}{}}})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"sessionId": sessionID,
+			"list":      results,
+		},
+	})
+}
+
+// getHTMLReport 直接返回 HTML 报告内容
+// GET /api/reports/:sessionId/html
+func (r *Router) getHTMLReport(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+
+	htmlPath, err := report.GenerateHTML(sessionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate html failed: " + err.Error()})
+		return
+	}
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.File(htmlPath)
 }
 
 // configDownload 平台下发配置

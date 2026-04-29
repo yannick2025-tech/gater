@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/yannick2025-tech/nts-gater/internal/generator"
+	"github.com/yannick2025-tech/nts-gater/internal/model"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+	"github.com/yannick2025-tech/nts-gater/internal/report"
 	"github.com/yannick2025-tech/nts-gater/internal/server"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
 	logging "github.com/yannick2025-tech/gwc-logging"
@@ -135,7 +137,71 @@ func (e *Engine) StartScenario(sessionID string, testCase string, params map[str
 	e.scenarios[sessionID] = sc
 	e.logger.Infof("[scenario] started %s for session=%s postNo=%d", sc.Name(), sessionID, sess.PostNo)
 
+	// 创建默认用例记录并设置 Recorder 的 currentCaseID
+	go e.createDefaultTestCase(sessionID, sess, testCase)
+
 	return sc, nil
+}
+
+// createDefaultTestCase 为场景创建默认的测试用例记录
+func (e *Engine) createDefaultTestCase(sessionID string, sess *session.Session, testCase string) {
+	// 获取最新的 scenarioID
+	reports, err := report.GetTestReportsBySessionID(sessionID)
+	if err != nil || len(reports) == 0 {
+		return
+	}
+	latestReport := reports[len(reports)-1]
+
+	caseID := generateCaseID(testCase)
+	caseName := getCaseName(testCase)
+
+	tc := &model.TestCase{
+		SessionID:    sessionID,
+		ScenarioID:   latestReport.ScenarioID,
+		ScenarioName: latestReport.ScenarioName,
+		CaseID:       caseID,
+		CaseName:     caseName,
+		CaseType:     testCase,
+		Status:       "running",
+		StartTime:    time.Now(),
+	}
+
+	if err := report.SaveTestCase(tc); err != nil {
+		e.logger.Warnf("[scenario] save test case warning: %v", err)
+	}
+
+	// 设置 Recorder 当前用例
+	if sess.Recorder != nil {
+		sess.Recorder.SetCurrentCase(caseID)
+	}
+}
+
+// generateCaseID 生成用例编号
+func generateCaseID(testCase string) string {
+	switch testCase {
+	case "basic_charging":
+		return "TC-BC-01"
+	case "sftp_upgrade":
+		return "TC-SU-01"
+	case "config_download":
+		return "TC-CD-01"
+	default:
+		return "TC-00-01"
+	}
+}
+
+// getCaseName 获取用例名称
+func getCaseName(testCase string) string {
+	switch testCase {
+	case "basic_charging":
+		return "基础充电测试"
+	case "sftp_upgrade":
+		return "SFTP升级测试"
+	case "config_download":
+		return "配置下发测试"
+	default:
+		return "未知测试"
+	}
 }
 
 // StopScenario 停止测试场景

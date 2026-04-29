@@ -21,6 +21,7 @@ const (
 	StatusDecodeFail   MessageStatus = "decode_fail"   // 解码失败
 	StatusInvalidField MessageStatus = "invalid_field"  // 字段值非法
 	StatusMessageLoss  MessageStatus = "message_loss"   // 消息丢失（期望但未收到）
+	StatusBusinessFail MessageStatus = "business_fail"  // 业务校验失败
 )
 
 // MessageRecord 单条消息记录
@@ -32,6 +33,7 @@ type MessageRecord struct {
 	HexData   string        // 原始16进制报文
 	JSONData  string        // 解码后JSON
 	ErrorMsg  string        // 错误信息（如有）
+	CaseID    string        // 所属用例ID
 }
 
 // FuncCodeStat 功能码统计
@@ -43,6 +45,7 @@ type FuncCodeStat struct {
 	DecodeFail     int   // 解码失败数
 	InvalidField   int   // 字段值非法数
 	MessageLoss    int   // 消息丢失数
+	BusinessFail   int   // 业务校验失败数
 }
 
 // SuccessRate 成功率
@@ -56,14 +59,15 @@ func (s *FuncCodeStat) SuccessRate() float64 {
 // SessionRecorder 会话消息记录器
 // 在会话期间实时记录每个功能码的上下行消息，并按功能码统计
 type SessionRecorder struct {
-	sessionID  string
-	postNo     uint32
-	startTime  time.Time
-	endTime    time.Time
-	mu         sync.RWMutex
-	records    []MessageRecord           // 所有消息记录
-	stats      map[statKey]*FuncCodeStat // 按功能码+方向统计
-	logger     logging.Logger             // session专用logger（预留）
+	sessionID     string
+	postNo        uint32
+	startTime     time.Time
+	endTime       time.Time
+	mu            sync.RWMutex
+	records       []MessageRecord           // 所有消息记录
+	stats         map[statKey]*FuncCodeStat // 按功能码+方向统计
+	logger        logging.Logger             // session专用logger（预留）
+	currentCaseID string                    // 当前活跃的用例ID
 }
 
 type statKey struct {
@@ -123,6 +127,20 @@ func writeGlobalLog(line string) {
 	}
 }
 
+// SetCurrentCase 设置当前活跃用例ID
+func (r *SessionRecorder) SetCurrentCase(caseID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.currentCaseID = caseID
+}
+
+// GetCurrentCase 获取当前活跃用例ID
+func (r *SessionRecorder) GetCurrentCase() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.currentCaseID
+}
+
 // RecordRecv 记录收到的消息（充电桩→平台）
 func (r *SessionRecorder) RecordRecv(funcCode byte, status MessageStatus, hexData string, jsonData string, errMsg string) {
 	r.mu.Lock()
@@ -137,6 +155,7 @@ func (r *SessionRecorder) RecordRecv(funcCode byte, status MessageStatus, hexDat
 		HexData:   hexData,
 		JSONData:  jsonData,
 		ErrorMsg:  errMsg,
+		CaseID:    r.currentCaseID,
 	}
 	r.records = append(r.records, rec)
 	r.updateStat(funcCode, types.DirectionUpload, status)
@@ -163,6 +182,7 @@ func (r *SessionRecorder) RecordSend(funcCode byte, status MessageStatus, hexDat
 		HexData:   hexData,
 		JSONData:  jsonData,
 		ErrorMsg:  errMsg,
+		CaseID:    r.currentCaseID,
 	}
 	r.records = append(r.records, rec)
 	r.updateStat(funcCode, types.DirectionDownload, status)
@@ -188,6 +208,7 @@ func (r *SessionRecorder) RecordReply(funcCode byte, status MessageStatus, hexDa
 		HexData:   hexData,
 		JSONData:  jsonData,
 		ErrorMsg:  errMsg,
+		CaseID:    r.currentCaseID,
 	}
 	r.records = append(r.records, rec)
 	r.updateStat(funcCode, types.DirectionReply, status)
@@ -222,6 +243,8 @@ func (r *SessionRecorder) updateStat(funcCode byte, dir types.Direction, status 
 		stat.InvalidField++
 	case StatusMessageLoss:
 		stat.MessageLoss++
+	case StatusBusinessFail:
+		stat.BusinessFail++
 	}
 }
 
@@ -338,7 +361,7 @@ func (r *SessionRecorder) FailTotal() int {
 
 	total := 0
 	for _, stat := range r.stats {
-		total += stat.DecodeFail + stat.InvalidField + stat.MessageLoss
+		total += stat.DecodeFail + stat.InvalidField + stat.MessageLoss + stat.BusinessFail
 	}
 	return total
 }

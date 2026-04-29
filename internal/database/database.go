@@ -54,9 +54,12 @@ func Init(cfg config.DatabaseConfig) error {
 
 	// 自动迁移
 	if err := db.AutoMigrate(
+		&model.Session{},
 		&model.TestReport{},
 		&model.FuncCodeStat{},
 		&model.MessageArchive{},
+		&model.TestCase{},
+		&model.ValidationResult{},
 	); err != nil {
 		return fmt.Errorf("auto migrate failed: %w", err)
 	}

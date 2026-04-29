@@ -330,6 +330,10 @@ type SessionManager struct {
 	mu         sync.RWMutex
 	counter    uint64
 	heartbeatTimeout time.Duration
+
+	// DB 持久化回调（由 main.go 注入，避免循环依赖）
+	onCreate  func(*Session) // session 创建时回调
+	onRemove  func(string)   // session 移除时回调（传入 sessionID）
 }
 
 // NewManager 创建会话管理器
@@ -341,6 +345,16 @@ func NewManager(proto types.Protocol, heartbeatTimeout time.Duration) *SessionMa
 		ivRule:           proto.CryptoConfig().IVRule,
 		heartbeatTimeout: heartbeatTimeout,
 	}
+}
+
+// SetOnCreate 设置 session 创建时的回调
+func (m *SessionManager) SetOnCreate(fn func(*Session)) {
+	m.onCreate = fn
+}
+
+// SetOnRemove 设置 session 移除时的回调
+func (m *SessionManager) SetOnRemove(fn func(string)) {
+	m.onRemove = fn
 }
 
 // Create 创建会话（充电桩新连接时调用）
@@ -381,6 +395,11 @@ func (m *SessionManager) Create(postNo uint32, connID string) (*Session, error) 
 	m.postNoMap[postNo] = id
 	m.mu.Unlock()
 
+	// 触发创建回调（异步 DB 持久化）
+	if m.onCreate != nil {
+		go m.onCreate(sess)
+	}
+
 	return sess, nil
 }
 
@@ -407,13 +426,20 @@ func (m *SessionManager) GetByPostNo(postNo uint32) (*Session, bool) {
 // Remove 移除会话并关闭记录器
 func (m *SessionManager) Remove(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	var sessionID string
 	if sess, ok := m.sessions[id]; ok {
 		if sess.Recorder != nil {
 			sess.Recorder.Close()
 		}
 		delete(m.postNoMap, sess.PostNo)
 		delete(m.sessions, id)
+		sessionID = id
+	}
+	m.mu.Unlock()
+
+	// 触发移除回调（异步 DB 更新在线状态）
+	if sessionID != "" && m.onRemove != nil {
+		go m.onRemove(sessionID)
 	}
 }
 

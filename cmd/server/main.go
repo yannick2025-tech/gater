@@ -48,18 +48,37 @@ func main() {
 	defer database.Close()
 	logger.Info("database initialized")
 
-	// 填充测试种子数据（开发阶段：模拟已结束的会话，供前端验证）
-	if err := report.SeedTestData(); err != nil {
-		logger.Warnf("seed test data: %v", err)
-	} else {
-		logger.Info("seed test data ready")
-	}
+	// SeedTestData 已移除：假数据会干扰真实测试结果的判断。
+	// 如需开发阶段使用种子数据，可取消下方注释：
+	// if err := report.SeedTestData(); err != nil {
+	//     logger.Warnf("seed test data: %v", err)
+	// } else {
+	//     logger.Info("seed test data ready")
+	// }
 
 	proto := standard.New()
 	logger.Infof("protocol: name=%s, version=0x%02X, registered_messages=%d",
 		proto.Name(), proto.Version(), len(proto.Registry().AllSpecs()))
 
 	sessMgr := session.NewManager(proto, cfg.Server.HeartbeatTimeout)
+
+	// 注入 Session 持久化回调（避免 session 包循环依赖 report 包）
+	sessMgr.SetOnCreate(func(sess *session.Session) {
+		if err := report.SaveSession(sess); err != nil {
+			fmt.Printf("[main] SaveSession error for %s: %v\n", sess.ID, err)
+		}
+	})
+	sessMgr.SetOnRemove(func(sessionID string) {
+		if err := report.UpdateSessionOnline(sessionID, false); err != nil {
+			fmt.Printf("[main] UpdateSessionOnline error for %s: %v\n", sessionID, err)
+		}
+	})
+
+	// 启动时清理僵尸 session（上次服务崩溃未正常关闭的）
+	if err := report.CleanStaleSessions(); err != nil {
+		logger.Warnf("clean stale sessions: %v", err)
+	}
+
 	frameValidator := validator.New(proto)
 	dp := dispatcher.New(proto, sessMgr, logger)
 	handlers.Register(dp, sessMgr, logger)
@@ -239,9 +258,13 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	}
 	sess.Recorder.RecordRecv(header.FuncCode, msgStatus, hexData, jsonData, decodeErr)
 
-	// 6.1 异步存档消息到数据库（不影响主流程）
+	// 6.1 异步存档消息到数据库 + 实时更新统计（不影响主流程）
 	go func() {
 		if msg != nil || hexData != "" {
+			caseID := ""
+			if sess.Recorder != nil {
+				caseID = sess.Recorder.GetCurrentCase()
+			}
 			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
 				Timestamp: time.Now(),
 				FuncCode:  header.FuncCode,
@@ -250,6 +273,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 				HexData:   hexData,
 				JSONData:  jsonData,
 				ErrorMsg:  decodeErr,
+				CaseID:    caseID,
 			})
 		}
 	}()
@@ -335,6 +359,10 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 
 		// 异步存档回复消息
 		go func() {
+			caseID := ""
+			if sess.Recorder != nil {
+				caseID = sess.Recorder.GetCurrentCase()
+			}
 			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
 				Timestamp: time.Now(),
 				FuncCode:  replyHeader.FuncCode,
@@ -343,6 +371,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 				HexData:   replyFrameHex,
 				JSONData:  replyJSON,
 				ErrorMsg:  "",
+				CaseID:    caseID,
 			})
 		}()
 
@@ -485,6 +514,15 @@ func onDisconnect(conn *server.Connection, postNo uint32, sessMgr *session.Sessi
 		} else {
 			logger.Infof("[sess:%s] report saved to database", sess.ID)
 		}
+
+		// 生成 HTML 报告
+		go func() {
+			if htmlPath, err := report.GenerateHTML(sess.ID); err != nil {
+				logger.Errorf("[sess:%s] generate html report failed: %v", sess.ID, err)
+			} else {
+				logger.Infof("[sess:%s] html report generated: %s", sess.ID, htmlPath)
+			}
+		}()
 	}
 
 	// 移除会话
