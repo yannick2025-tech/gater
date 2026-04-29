@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -688,7 +689,7 @@ func (r *Router) stopTest(c *gin.Context) {
 		"code": 200,
 		"data": gin.H{
 			"sessionId":        req.SessionID,
-			"platformStopTime": now.Format("2006-01-02 15:04:05.000"),
+			"platformStopTime": now.Format("2006-01-02 15:04:05"),
 		},
 	})
 }
@@ -745,7 +746,7 @@ func (r *Router) getChargingInfo(c *gin.Context) {
 				"platformStartTime":  formatTime(cs.PlatformStartTime),
 				"firstDataTime":      formatTime(cs.FirstDataTime),
 				"lastDataTime":       formatTime(cs.LastDataTime),
-				"platformStopTime":   formatTimeMs(cs.PlatformStopTime),
+				"platformStopTime":   formatTime(cs.PlatformStopTime),
 				"chargerStartTime":   cs.ChargerStartTime,
 				"chargerStopTime":    cs.ChargerStopTime,
 				"chargingOrderNo":    cs.ChargingOrderNo,
@@ -1004,7 +1005,7 @@ func (r *Router) decodeMessage(c *gin.Context) {
 	})
 }
 
-// exportReport 导出测试报告（生成 HTML）
+// exportReport 导出测试报告（生成 HTML 并打包为 ZIP）
 // POST /api/test/export
 // Body: {"sessionId": "sess-1"}
 func (r *Router) exportReport(c *gin.Context) {
@@ -1016,9 +1017,9 @@ func (r *Router) exportReport(c *gin.Context) {
 		return
 	}
 
-	htmlPath, err := report.GenerateHTML(req.SessionID)
+	zipPath, err := report.GenerateHTML(req.SessionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate html failed: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate report failed: " + err.Error()})
 		return
 	}
 
@@ -1026,8 +1027,8 @@ func (r *Router) exportReport(c *gin.Context) {
 		"code": 200,
 		"data": gin.H{
 			"sessionId": req.SessionID,
-			"htmlUrl":   "/api/reports/" + req.SessionID + "/html",
-			"htmlPath":  htmlPath,
+			"zipUrl":    "/api/reports/" + req.SessionID + "/html",
+			"zipPath":   zipPath,
 		},
 	})
 }
@@ -1088,19 +1089,22 @@ func (r *Router) getValidationResults(c *gin.Context) {
 	})
 }
 
-// getHTMLReport 直接返回 HTML 报告内容
+// getHTMLReport 生成并下载 HTML 报告（ZIP 格式）
 // GET /api/reports/:sessionId/html
 func (r *Router) getHTMLReport(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
-	htmlPath, err := report.GenerateHTML(sessionID)
+	zipPath, err := report.GenerateHTML(sessionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate html failed: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "generate report failed: " + err.Error()})
 		return
 	}
 
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.File(htmlPath)
+	// 提取文件名作为下载名
+	zipName := filepath.Base(zipPath)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipName))
+	c.Header("Content-Type", "application/zip")
+	c.File(zipPath)
 }
 
 // configDownload 平台下发配置

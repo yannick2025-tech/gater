@@ -31,7 +31,7 @@ export function decodeMessage(hex: string) {
 }
 
 export function exportReport(sessionId: string) {
-  return request.post<any, { sessionId: string; pdfUrl: string; pdfPath: string }>('/test/export', { sessionId })
+  return request.post<any, { sessionId: string; zipUrl: string; zipPath: string }>('/test/export', { sessionId })
 }
 
 export function configDownload(gunNumber: string, items: ConfigItem[]) {

@@ -2,10 +2,13 @@
 package report
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/yannick2025-tech/nts-gater/internal/database"
@@ -32,14 +35,16 @@ type CaseReport struct {
 	Validations  []model.ValidationResult
 }
 
-// GenerateHTML 生成 V3 HTML 测试报告
+// GenerateHTML 生成 HTML 测试报告并打包为 ZIP
+// ZIP 内包含带完整样式的 HTML 文件
+// 返回 ZIP 文件路径
 func GenerateHTML(sessionID string) (string, error) {
 	db := database.GetDB()
 	if db == nil {
 		return "", fmt.Errorf("database not initialized")
 	}
 
-	// 1. 查询 session
+	// 1. 查询 session（获取协议名称和版本号）
 	var sess model.Session
 	if err := db.Where("id = ?", sessionID).First(&sess).Error; err != nil {
 		return "", fmt.Errorf("session not found: %w", err)
@@ -76,7 +81,6 @@ func GenerateHTML(sessionID string) (string, error) {
 
 		// 无用例时也保留场景信息
 		if len(cases) == 0 {
-			// 不属于特定用例的报文
 			var msgs []model.MessageArchive
 			db.Where("session_id = ? AND (case_id = '' OR case_id IS NULL)", sessionID).
 				Order("timestamp ASC").Find(&msgs)
@@ -97,26 +101,12 @@ func GenerateHTML(sessionID string) (string, error) {
 		scenarioReports = append(scenarioReports, sr)
 	}
 
-	// 4. 渲染 HTML
+	// 4. 渲染 HTML 到内存
 	data := HTMLReportData{
 		Session:     sess,
 		Reports:     scenarioReports,
 		GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),
 	}
-
-	outputDir := "reports"
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return "", fmt.Errorf("create reports dir: %w", err)
-	}
-
-	filename := fmt.Sprintf("report_%s_%s.html", sessionID, time.Now().Format("20060102_150405"))
-	filePath := filepath.Join(outputDir, filename)
-
-	f, err := os.Create(filePath)
-	if err != nil {
-		return "", fmt.Errorf("create html file: %w", err)
-	}
-	defer f.Close()
 
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"fmtDate":    func(t time.Time) string { return t.Format("2006-01-02 15:04:05") },
@@ -139,11 +129,60 @@ func GenerateHTML(sessionID string) (string, error) {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
 
-	if err := tmpl.Execute(f, data); err != nil {
+	// 将渲染结果写入内存 buffer
+	var htmlBuf bytes.Buffer
+	if err := tmpl.Execute(&htmlBuf, data); err != nil {
 		return "", fmt.Errorf("execute template: %w", err)
 	}
 
-	return filePath, nil
+	// 5. 构建 ZIP 文件名: 协议名称-版本号-接入测试报告-yyyymmdd-hhmiss.zip
+	now := time.Now()
+	protocolName := strings.TrimSpace(sess.ProtocolName)
+	if protocolName == "" {
+		protocolName = "XX标准协议"
+	}
+	protocolVer := strings.TrimSpace(sess.ProtocolVer)
+	if protocolVer == "" {
+		protocolVer = "v1.6.0"
+	}
+	zipFileName := fmt.Sprintf("%s-%s-接入测试报告-%s-%s.zip",
+		protocolName,
+		protocolVer,
+		now.Format("20060102"),
+		now.Format("150405"),
+	)
+
+	outputDir := "reports"
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("create reports dir: %w", err)
+	}
+	zipPath := filepath.Join(outputDir, zipFileName)
+
+	// 6. 创建 ZIP 文件，内含 report.html
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		return "", fmt.Errorf("create zip file: %w", err)
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	// 在 ZIP 中创建 report.html
+	htmlWriter, err := zipWriter.Create("report.html")
+	if err != nil {
+		return "", fmt.Errorf("create zip entry: %w", err)
+	}
+
+	if _, err := htmlWriter.Write(htmlBuf.Bytes()); err != nil {
+		return "", fmt.Errorf("write html to zip: %w", err)
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		return "", fmt.Errorf("close zip writer: %w", err)
+	}
+
+	return zipPath, nil
 }
 
 // reportHTMLTemplate HTML报告模板

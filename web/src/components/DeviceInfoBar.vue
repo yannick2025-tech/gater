@@ -24,11 +24,11 @@
         <el-table-column prop="gunNumber" label="桩编号" min-width="120" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.isOnline && row.authState === 'authenticated'" type="success" effect="light" size="small" round>在线</el-tag>
-            <el-tag v-else-if="row.isOnline && row.authState === 'pending'" type="warning" effect="light" size="small" round>认证中</el-tag>
-            <el-tag v-else-if="row.authState === 'authenticated'" type="info" effect="light" size="small" round>已认证</el-tag>
-            <el-tag v-else-if="row.authState === 'pending'" type="info" effect="light" size="small" round>认证中</el-tag>
-            <el-tag v-else type="info" effect="light" size="small" round>历史</el-tag>
+            <!-- 离线会话统一显示"历史"，不论认证状态 -->
+            <el-tag v-if="!row.isOnline" type="info" effect="light" size="small" round>历史</el-tag>
+            <!-- 在线会话：按认证状态区分 -->
+            <el-tag v-else-if="row.authState === 'authenticated'" type="success" effect="light" size="small" round>在线</el-tag>
+            <el-tag v-else type="warning" effect="light" size="small" round>认证中</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="connectedAt" label="连接时间" min-width="160" />

@@ -30,7 +30,7 @@
           </div>
           <div class="detail-item">
             <span class="label">充电桩充电开始时间</span>
-            <span class="value">{{ info.chargingInfo.chargerStartTime || '--' }}</span>
+            <span class="value">{{ formatChargerTime(info.chargingInfo.chargerStartTime) || '--' }}</span>
           </div>
           <div class="detail-item">
             <span class="label">订单号</span>
@@ -62,7 +62,7 @@
           </div>
           <div class="detail-item">
             <span class="label">充电桩充电结束时间</span>
-            <span class="value">{{ info.chargingInfo.chargerStopTime || '--' }}</span>
+            <span class="value">{{ formatChargerTime(info.chargingInfo.chargerStopTime) || '--' }}</span>
           </div>
         </div>
       </div>
@@ -90,6 +90,20 @@ function formatDuration(sec: number | undefined): string {
   const m = Math.floor(sec / 60)
   const s = sec % 60
   return `${m}分${s}秒`
+}
+
+/** 解析充电桩上报的原始时间格式 YYYYMMDDHHMISS → YYYY-MM-DD HH:MI:SS */
+function formatChargerTime(raw: string | undefined): string {
+  if (!raw || raw.length < 14) return raw || ''
+  // 充电桩时间格式: 20260429162837
+  const s = raw
+  const year = s.slice(0, 4)
+  const month = s.slice(4, 6)
+  const day = s.slice(6, 8)
+  const hour = s.slice(8, 10)
+  const min = s.slice(10, 12)
+  const sec = s.slice(12, 14)
+  return `${year}-${month}-${day} ${hour}:${min}:${sec}`
 }
 </script>
 

@@ -128,31 +128,55 @@ const statistics = ref<any[]>([])
 const allArchives = ref<any[]>([])
 const showMsgModal = ref(false)
 
-// Summary rows: deduplicated by (funcCode + direction + status), sorted by first timestamp
+// Summary rows: 优先从报文存档构建，为空时从 statistics（功能码统计）降级
 const summaryRows = computed(() => {
   const map = new Map<string, any>()
 
-  // 遍历所有报文存档，按 (funcCode+direction+status) 分组，保留最近的一条
-  for (const arch of allArchives.value) {
-    const key = `${arch.funcCode}_${arch.direction}_${arch.status}`
-    const existing = map.get(key)
-    if (!existing || arch.timestamp > existing.timestamp) {
+  // 优先使用报文存档
+  if (allArchives.value.length > 0) {
+    for (const arch of allArchives.value) {
+      const key = `${arch.funcCode}_${arch.direction}_${arch.status}`
+      const existing = map.get(key)
+      if (!existing || arch.timestamp > existing.timestamp) {
+        map.set(key, {
+          funcCode: arch.funcCode,
+          direction: arch.direction,
+          status: arch.status,
+          isSuccess: arch.status === 'success',
+          timestamp: arch.timestamp,
+          hexData: arch.hexData,
+          jsonData: arch.jsonData,
+        })
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.timestamp.localeCompare(b.timestamp)
+    )
+  }
+
+  // 降级：从 statistics（func_code_stats）构建汇总行
+  for (const s of statistics.value) {
+    const total = s.totalMessages || 0
+    const ok = s.successCount || 0
+    const fail = (s.decodeFail || 0) + (s.invalidField || 0) + (s.messageLoss || 0) + (s.businessFail || 0)
+    const key = `${s.funcCode}_${s.direction}`
+    if (!map.has(key)) {
       map.set(key, {
-        funcCode: arch.funcCode,
-        direction: arch.direction,
-        status: arch.status,
-        isSuccess: arch.status === 'success',
-        timestamp: arch.timestamp,
-        hexData: arch.hexData,
-        jsonData: arch.jsonData,
+        funcCode: s.funcCode,
+        direction: s.direction,
+        status: fail > 0 ? 'partial_fail' : 'success',
+        isSuccess: fail === 0 && total > 0,
+        timestamp: '',
+        hexData: '',
+        jsonData: '',
+        _total: total,
+        _ok: ok,
+        _fail: fail,
       })
     }
   }
 
-  // 转为数组，按时间排序
-  return Array.from(map.values()).sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp)
-  )
+  return Array.from(map.values())
 })
 
 // Watch dialog open → fetch data using sessionId
@@ -164,46 +188,44 @@ watch(() => props.modelValue, async (val) => {
   if (!sid) return
 
   loading.value = true
-  try {
-    // Fetch test report detail by sessionId（可能返回404，如session还在运行中未入库）
-    const detail = await getTestDetail(sid)
-    statistics.value = detail.statistics || []
-
-    // Compute stats
-    let total = 0, success = 0, fail = 0
-    for (const s of statistics.value) {
-      total += s.totalMessages
-      success += s.successCount
-      fail += (s.decodeFail || 0) + (s.invalidField || 0) + (s.messageLoss || 0)
-    }
-    stats.value.totalMessages = total
-    stats.value.successTotal = success
-    stats.value.failTotal = fail
-    stats.value.duration = 0
-    stats.value.successRate = total > 0 ? Math.round(success / total * 100 * 10) / 10 : 0
-
-    // Fetch all message archives for this session
-    allArchives.value = []
-    try { allArchives.value = await getMessageArchives(sid, '', '') } catch { /* empty */ }
-    if (sessionIdRef.value) {
-      try {
-        allArchives.value = await getMessageArchives(sessionIdRef.value, '', '')
-      } catch {
-        allArchives.value = []
+  // 独立加载统计数据和报文存档，互不干扰
+  const loadStats = async () => {
+    try {
+      const detail = await getTestDetail(sid)
+      statistics.value = detail.statistics || []
+      // 从 statistics 聚合左侧统计面板
+      let total = 0, success = 0, fail = 0
+      for (const s of statistics.value) {
+        total += s.totalMessages || 0
+        success += s.successCount || 0
+        fail += (s.decodeFail || 0) + (s.invalidField || 0) + (s.messageLoss || 0) + (s.businessFail || 0)
       }
+      stats.value.totalMessages = total
+      stats.value.successTotal = success
+      stats.value.failTotal = fail
+      stats.value.duration = 0
+      stats.value.successRate = total > 0 ? Math.round(success / total * 100 * 10) / 10 : 0
+    } catch {
+      statistics.value = []
+      stats.value.totalMessages = 0
+      stats.value.successTotal = 0
+      stats.value.failTotal = 0
+      stats.value.duration = 0
+      stats.value.successRate = 0
     }
-  } catch (e: any) {
-    // 报告尚未入库（session仍在运行中）→ 显示友好提示而非报错
-    statistics.value = []
-    allArchives.value = []
-    stats.value.totalMessages = 0
-    stats.value.successTotal = 0
-    stats.value.failTotal = 0
-    stats.value.duration = 0
-    stats.value.successRate = 0
-  } finally {
-    loading.value = false
   }
+
+  const loadArchives = async () => {
+    try {
+      const data = await getMessageArchives(sid, '', '')
+      allArchives.value = Array.isArray(data) ? data : []
+    } catch {
+      allArchives.value = []
+    }
+  }
+
+  await Promise.all([loadStats(), loadArchives()])
+  loading.value = false
 })
 
 // Shared ref for passing filtered messages to MessageViewModal (module-level)

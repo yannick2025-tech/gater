@@ -182,6 +182,16 @@ const filteredResults = computed(() => {
   return testStore.testResults.filter(r => r.sessionId === sess.sessionId)
 })
 
+// 当选择状态变为历史/断开且结果为空时，主动重新加载
+watch(selectionState, async (newState) => {
+  if (newState === 'historical' || newState === 'disconnected') {
+    const sid = disconnectedSession.value?.sessionId || deviceStore.selectedSession?.sessionId
+    if (sid && testStore.testResults.length === 0) {
+      await testStore.fetchResultsBySession(sid)
+    }
+  }
+})
+
 // 监听session列表变化，同步本地测试状态
 watch(() => deviceStore.selectedSession, (sess) => {
   if (sess && sess.testStatus === 'running') {
@@ -317,7 +327,14 @@ function handleDisconnect() {
   // 6. 刷新会话列表（后台更新，不切换到会话列表视图）
   deviceStore.fetchSessions()
 
-  // ★ 7. 确保URL保持为 /session/:id（刷新后仍能恢复到此会话的详情视图）
+  // ★ 7. 断开后重新从DB加载该会话的最新测试结果（后端SaveReport已写入）
+  if (sessionId) {
+    setTimeout(() => {
+      testStore.fetchResultsBySession(sessionId)
+    }, 1000) // 延迟1秒等后端异步SaveReport完成
+  }
+
+  // ★ 8. 确保URL保持为 /session/:id（刷新后仍能恢复到此会话的详情视图）
   if (sessionId && route.params.sessionId !== sessionId) {
     router.replace({ name: 'SessionDetail', params: { sessionId } })
   }

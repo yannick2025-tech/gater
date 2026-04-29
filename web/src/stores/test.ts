@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { TestStatus } from '@/types/test'
-import { getTestResults, getTestStatus, startTest as startTestApi, configDownload } from '@/api/test'
+import { getTestResults, getTestStatus, startTest as startTestApi, configDownload, exportReport as exportReportApi } from '@/api/test'
 import type { ConfigItem } from '@/types/test'
 import { ElMessage } from 'element-plus'
 import { useDeviceStore } from '@/stores/device'
@@ -109,7 +109,30 @@ export const useTestStore = defineStore('test', () => {
   }
 
   function exportReport() {
-    ElMessage.info('导出功能开发中...')
+    const deviceStore = useDeviceStore()
+    const sessionId = deviceStore.selectedSession?.sessionId || ''
+    if (!sessionId) {
+      ElMessage.warning('请先选择一个会话')
+      return
+    }
+    ElMessage.info('正在生成测试报告...')
+    exportReportApi(sessionId).then((res) => {
+      const zipUrl = res.zipUrl
+      if (zipUrl) // 通过 <a> 标签触发浏览器下载 ZIP 文件
+      {
+        const link = document.createElement('a')
+        link.href = zipUrl
+        link.download = '' // 服务端返回 Content-Disposition，此处留空即可
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        ElMessage.success('测试报告已生成')
+      } else {
+        ElMessage.error('生成报告失败：未返回报告路径')
+      }
+    }).catch((e: any) => {
+      ElMessage.error(e?.message || '导出测试报告失败')
+    })
   }
 
   async function startConfigTest(gunNumber: string, items: ConfigItem[]) {
