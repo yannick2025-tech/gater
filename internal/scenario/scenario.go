@@ -99,8 +99,12 @@ func (e *Engine) StartScenario(sessionID string, testCase string, params map[str
 	}
 
 	// 检查是否已有运行中的场景
-	if existing, ok := e.scenarios[sessionID]; ok && existing.State() == StateRunning {
-		return nil, "", ErrScenarioAlreadyRunning
+	if existing, ok := e.scenarios[sessionID]; ok {
+		if existing.State() == StateRunning {
+			return nil, "", ErrScenarioAlreadyRunning
+		}
+		// 旧场景已完成/失败/空闲，自动清理以允许新场景启动
+		delete(e.scenarios, sessionID)
 	}
 
 	// 查找TCP连接（Web端模式可能没有真实TCP连接）
@@ -277,8 +281,12 @@ func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scen
 		return nil, ErrSessionNotFound
 	}
 
-	if existing, ok := e.scenarios[sessionID]; ok && existing.State() == StateRunning {
-		return nil, ErrScenarioAlreadyRunning
+	if existing, ok := e.scenarios[sessionID]; ok {
+		if existing.State() == StateRunning {
+			return nil, ErrScenarioAlreadyRunning
+		}
+		// 旧场景已完成/失败/空闲，自动清理以允许新场景启动
+		delete(e.scenarios, sessionID)
 	}
 
 	// 查找TCP连接（Web端模式可能没有真实TCP连接）

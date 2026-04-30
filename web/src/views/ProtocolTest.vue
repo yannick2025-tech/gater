@@ -22,6 +22,7 @@
         :is-charging="isCharging"
         :is-charging-stopped="isChargingStopped"
         @start="handleStartTest"
+        @config-start="handleConfigStart"
         @stop="handleStopTest"
       />
     </div>
@@ -357,6 +358,19 @@ function handleStartTest(data: Record<string, unknown>) {
       startChargingPolling(sessionId)
     }
   }).catch(() => {
+    isTestRunning.value = false
+  })
+}
+
+function handleConfigStart(gunNumber: string, items: Array<{ funcCode: number; payload: Record<string, unknown> }>) {
+  // 使用 gunNumber 从当前选中设备获取
+  const gn = gunNumber || deviceStore.deviceInfo.gunNumber || String(deviceStore.selectedSession?.postNo || '')
+  if (!gn) {
+    ElMessage.warning('无法获取设备编号')
+    return
+  }
+  isTestRunning.value = true
+  testStore.startConfigTest(gn, items).catch(() => {
     isTestRunning.value = false
   })
 }

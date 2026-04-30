@@ -118,20 +118,18 @@
       <template v-if="formData.scenario === 'config_download'">
         <div class="form-section">
           <el-form-item label="配置项(funcCode)" class="form-item-nested full-row">
-            <el-select v-model="formData.configFuncCode" placeholder="选择功能码" class="full-width" filterable allow-create>
-              <el-option label="0x01 - 工作参数设置" value="0x01" />
-              <el-option label="0x02 - 网络配置" value="0x02" />
-              <el-option label="0x03 - 认证信息" value="0x03" />
-              <el-option label="0x04 - 固件信息" value="0x04" />
-              <el-option label="0xFF - 其他(自定义)" value="0xFF" />
+            <el-select v-model="formData.configFuncCode" placeholder="选择功能码" class="full-width" @change="onConfigFuncCodeChange">
+              <el-option label="0xC2 - 配置信息下发" value="0xC2" />
+              <el-option label="0x22 - 分时段计费规则下发" value="0x22" />
+              <el-option label="0x0C - 设备参数查询" value="0x0C" />
             </el-select>
           </el-form-item>
           <el-form-item label="Payload内容(JSON)" class="form-item-nested full-row">
             <el-input
               v-model="formData.configPayload"
               type="textarea"
-              :rows="4"
-              placeholder='{"key": "value"}'
+              :rows="6"
+              placeholder='选择配置项后自动填充默认JSON，可修改参数值'
               class="json-textarea"
             />
           </el-form-item>
@@ -186,6 +184,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'start', data: Record<string, unknown>): void
+  (e: 'configStart', gunNumber: string, items: Array<{ funcCode: number; payload: Record<string, unknown> }>): void
   (e: 'stop'): void
 }>()
 
@@ -213,6 +212,36 @@ const formData = ref({
   configFuncCode: '',
   configPayload: '',
 })
+
+// 配置项默认 JSON payload（基于协议文档 appendix.MD 附录-配置项列表）
+const configPayloadDefaults: Record<string, string> = {
+  '0xC2': JSON.stringify({
+    paramList: [
+      { seq: 6, value: "192.168.1.100" },
+      { seq: 7, value: 8888 },
+      { seq: 10, value: "192.168.0.1" },
+      { seq: 11, value: "255.255.255.0" },
+      { seq: 12, value: "192.168.0.1" },
+      { seq: 14, value: "20260101120000" }
+    ]
+  }, null, 2),
+  '0x22': JSON.stringify({
+    feeNum: 1,
+    listFee: [
+      { hour: 0, min: 0, powerFee: 10000, svcFee: 10000, type: 2, limitedP: 0 }
+    ]
+  }, null, 2),
+  '0x0C': JSON.stringify({
+    cmdCode: 0,
+    data: [6, 7, 10, 14]
+  }, null, 2),
+}
+
+function onConfigFuncCodeChange(val: string) {
+  if (configPayloadDefaults[val]) {
+    formData.value.configPayload = configPayloadDefaults[val]
+  }
+}
 
 const showChargingParams = computed(() => formData.value.scenario === 'basic_charging')
 
@@ -251,8 +280,39 @@ function handleStart() {
     return
   }
 
+  const scenario = formData.value.scenario
+
+  // 配置下发：使用专用接口，只发送配置相关参数
+  if (scenario === 'config_download') {
+    const funcCodeStr = formData.value.configFuncCode
+    if (!funcCodeStr) {
+      ElMessage.error('请选择配置项(funcCode)')
+      return
+    }
+    // 解析 funcCode: "0xC2" → 194
+    const funcCode = parseInt(funcCodeStr, 16)
+    if (isNaN(funcCode)) {
+      ElMessage.error('funcCode格式错误')
+      return
+    }
+    const payloadStr = formData.value.configPayload?.trim()
+    if (!payloadStr) {
+      ElMessage.error('请填写Payload内容')
+      return
+    }
+    let payloadObj: Record<string, unknown>
+    try {
+      payloadObj = JSON.parse(payloadStr)
+    } catch {
+      ElMessage.error('Payload JSON格式错误')
+      return
+    }
+    emit('configStart', '', [{ funcCode, payload: payloadObj }])
+    return
+  }
+
   // 基础充电参数校验
-  if (formData.value.scenario === 'basic_charging') {
+  if (scenario === 'basic_charging') {
     // VIN码：可选，但填了必须是17位
     const vin = formData.value.vinCode?.trim()
     if (vin && vin.length !== 17) {
@@ -265,6 +325,32 @@ function handleStart() {
       ElMessage.error('请输入账户余额')
       return
     }
+
+    // 只发送充电相关参数
+    emit('start', {
+      scenario,
+      vinCode: formData.value.vinCode,
+      balance: formData.value.balance,
+      displayMode: formData.value.displayMode,
+      targetSoc: formData.value.targetSoc,
+      energy: formData.value.energy,
+      prices: formData.value.prices,
+    })
+    return
+  }
+
+  // SFTP升级：只发送SFTP相关参数
+  if (scenario === 'sftp_upgrade') {
+    emit('start', {
+      scenario,
+      sftpHost: formData.value.sftpHost,
+      sftpPort: formData.value.sftpPort,
+      sftpUser: formData.value.sftpUser,
+      sftpPass: formData.value.sftpPass,
+      firmwarePath: formData.value.firmwarePath,
+      md5Checksum: formData.value.md5Checksum,
+    })
+    return
   }
 
   emit('start', { ...formData.value })
