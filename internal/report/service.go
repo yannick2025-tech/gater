@@ -136,8 +136,8 @@ func CreateRunningReport(sessionID string, postNo uint32, testCase string, scena
 	scenarioName := ""
 	switch testCase {
 	case "basic_charging":
-		protocolName = "XX标准协议-基础充电测试"
-		scenarioName = "基础充电测试"
+		protocolName = "XX标准协议-业务场景测试"
+		scenarioName = "业务场景测试"
 	case "sftp_upgrade":
 		protocolName = "XX标准协议-SFTP升级测试"
 		scenarioName = "SFTP升级测试"
@@ -308,6 +308,12 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 
 	// 5. 聚合场景级统计 → 更新 test_reports 表
 	aggregateTestReports(db, summary.SessionID)
+
+	// 6. 同步写入 ClosedAt（不依赖 sessMgr.Remove 的异步 onRemove 回调，
+	//    确保报告生成时 ClosedAt 已落盘）
+	now := time.Now()
+	db.Model(&model.Session{}).Where("id = ? AND (closed_at IS NULL OR closed_at < ?)", summary.SessionID, now).
+		Update("closed_at", &now)
 
 	return nil
 }

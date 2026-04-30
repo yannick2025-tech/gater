@@ -520,8 +520,8 @@ func (r *Router) handleDisconnect(c *gin.Context, postNo uint32) {
 			protocolName := "XX标准协议"
 			if testCaseName != "" {
 				switch testCaseName {
-				case "basic_charging":
-					protocolName = "XX标准协议-基础充电测试"
+			case "basic_charging":
+				protocolName = "XX标准协议-业务场景测试"
 				case "sftp_upgrade":
 					protocolName = "XX标准协议-SFTP升级测试"
 				case "config_download":

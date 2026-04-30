@@ -155,7 +155,7 @@ func (e *Engine) createDefaultTestCase(sessionID string, sess *session.Session, 
 	scenarioName := ""
 	switch testCase {
 	case "basic_charging":
-		scenarioName = "基础充电测试"
+		scenarioName = "业务场景测试"
 	case "sftp_upgrade":
 		scenarioName = "SFTP升级测试"
 	case "config_download":
@@ -201,7 +201,7 @@ func generateCaseID(testCase string) string {
 func getCaseName(testCase string) string {
 	switch testCase {
 	case "basic_charging":
-		return "基础充电测试"
+		return "业务场景测试"
 	case "sftp_upgrade":
 		return "SFTP升级测试"
 	case "config_download":
