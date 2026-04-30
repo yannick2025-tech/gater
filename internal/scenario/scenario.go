@@ -91,16 +91,16 @@ func NewEngine(sessMgr *session.SessionManager, srv *server.Server, proto types.
 	}
 }
 
-// StartScenario 启动测试场景
-func (e *Engine) StartScenario(sessionID string, testCase string, params map[string]interface{}) (Scenario, error) {
+// StartScenario 启动测试场景，返回场景实例和场景UUID
+func (e *Engine) StartScenario(sessionID string, testCase string, params map[string]interface{}) (Scenario, string, error) {
 	sess, ok := e.sessMgr.Get(sessionID)
 	if !ok {
-		return nil, ErrSessionNotFound
+		return nil, "", ErrSessionNotFound
 	}
 
 	// 检查是否已有运行中的场景
 	if existing, ok := e.scenarios[sessionID]; ok && existing.State() == StateRunning {
-		return nil, ErrScenarioAlreadyRunning
+		return nil, "", ErrScenarioAlreadyRunning
 	}
 
 	// 查找TCP连接（Web端模式可能没有真实TCP连接）
@@ -122,7 +122,7 @@ func (e *Engine) StartScenario(sessionID string, testCase string, params map[str
 	case "config_download":
 		sc = NewConfigDownloadScenario(sessionID, sess, e.proto, e.logger)
 	default:
-		return nil, ErrUnknownTestCase
+		return nil, "", ErrUnknownTestCase
 	}
 
 	// 设置场景参数
@@ -132,34 +132,40 @@ func (e *Engine) StartScenario(sessionID string, testCase string, params map[str
 
 	sc.SetSendFunc(sendFn)
 	if err := sc.Start(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	e.scenarios[sessionID] = sc
 	e.logger.Infof("[scenario] started %s for session=%s postNo=%d", sc.Name(), sessionID, sess.PostNo)
 
-	// 创建默认用例记录并设置 Recorder 的 currentCaseID
-	go e.createDefaultTestCase(sessionID, sess, testCase)
+	// 生成场景UUID（与 CreateRunningReport 使用同一个ID）
+	scenarioID := report.GenerateScenarioID()
 
-	return sc, nil
+	// 同步创建默认用例记录（直接传scenarioID，无需查询DB，无竞态条件）
+	e.createDefaultTestCase(sessionID, sess, testCase, scenarioID)
+
+	return sc, scenarioID, nil
 }
 
-// createDefaultTestCase 为场景创建默认的测试用例记录
-func (e *Engine) createDefaultTestCase(sessionID string, sess *session.Session, testCase string) {
-	// 获取最新的 scenarioID
-	reports, err := report.GetTestReportsBySessionID(sessionID)
-	if err != nil || len(reports) == 0 {
-		return
-	}
-	latestReport := reports[len(reports)-1]
-
+// createDefaultTestCase 为场景创建默认的测试用例记录（同步调用，scenarioID由调用方传入）
+func (e *Engine) createDefaultTestCase(sessionID string, sess *session.Session, testCase string, scenarioID string) {
 	caseID := generateCaseID(testCase)
 	caseName := getCaseName(testCase)
 
+	scenarioName := ""
+	switch testCase {
+	case "basic_charging":
+		scenarioName = "基础充电测试"
+	case "sftp_upgrade":
+		scenarioName = "SFTP升级测试"
+	case "config_download":
+		scenarioName = "配置下发测试"
+	}
+
 	tc := &model.TestCase{
 		SessionID:    sessionID,
-		ScenarioID:   latestReport.ScenarioID,
-		ScenarioName: latestReport.ScenarioName,
+		ScenarioID:   scenarioID,
+		ScenarioName: scenarioName,
 		CaseID:       caseID,
 		CaseName:     caseName,
 		CaseType:     testCase,
@@ -171,7 +177,7 @@ func (e *Engine) createDefaultTestCase(sessionID string, sess *session.Session, 
 		e.logger.Warnf("[scenario] save test case warning: %v", err)
 	}
 
-	// 设置 Recorder 当前用例
+	// 设置 Recorder 当前用例（后续 RecordRecv/Send/Reply 会自动关联此 caseID）
 	if sess.Recorder != nil {
 		sess.Recorder.SetCurrentCase(caseID)
 	}

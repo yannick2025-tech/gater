@@ -79,18 +79,41 @@ func GenerateHTML(sessionID string) (string, error) {
 			caseReports = append(caseReports, cr)
 		}
 
-		// 无用例时也保留场景信息
+		// 无用例时也保留场景信息（展示未关联到具体用例的报文）
 		if len(cases) == 0 {
 			var msgs []model.MessageArchive
 			db.Where("session_id = ? AND (case_id = '' OR case_id IS NULL)", sessionID).
 				Order("timestamp ASC").Find(&msgs)
 			if len(msgs) > 0 {
+				// 从实际报文动态计算统计指标（不再硬编码0）
+				totalMsgs := len(msgs)
+				successCnt := 0
+				failCnt := 0
+				for _, m := range msgs {
+					if m.Status == "success" {
+						successCnt++
+					} else {
+						failCnt++
+					}
+				}
+				successRate := 0.0
+				if totalMsgs > 0 {
+					successRate = float64(successCnt) / float64(totalMsgs) * 100
+				}
+				result := "pass"
+				if failCnt > 0 {
+					result = "fail"
+				}
+
 				caseReports = append(caseReports, CaseReport{
 					TestCase: model.TestCase{
-						CaseID:   "",
-						CaseName: "其他报文",
-						Status:   "completed",
-						Result:   "pass",
+						CaseID:       "",
+						CaseName:     "其他报文",
+						Status:       "completed",
+						Result:       result,
+						TotalMessages: totalMsgs,
+						SuccessCount: successCnt,
+						SuccessRate:  successRate,
 					},
 					Messages: msgs,
 				})

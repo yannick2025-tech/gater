@@ -596,16 +596,13 @@ func (r *Router) startTest(c *gin.Context) {
 		return
 	}
 
-	sc, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase, req.Params)
+	sc, scenarioID, err := r.scenarioEngine.StartScenario(sess.ID, req.TestCase, req.Params)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 
-	// 生成测试场景UUID（同一session下可有多个场景：充电/SFTP升级/配置下发）
-	scenarioID := report.GenerateScenarioID()
-
-	// 立即写入 running 占位记录到数据库，确保前端刷新/重入时能查到
+	// 立即写入 running 占位记录到数据库（scenarioID 由 StartScenario 内部生成并返回）
 	if err := report.CreateRunningReport(sess.ID, sess.PostNo, req.TestCase, scenarioID); err != nil {
 		fmt.Printf("[startTest] create running report warning: %v\n", err)
 	}
