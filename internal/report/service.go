@@ -154,7 +154,7 @@ func CreateRunningReport(sessionID string, postNo uint32, testCase string, scena
 		ProtocolName: protocolName,
 		ProtocolVer:  "v1.6.0",
 		StartTime:    now,
-		EndTime:      time.Time{},
+		// EndTime: nil （测试运行中，结束时间为 NULL）
 		Status:       "running",
 		AuthState:    "",
 	}
@@ -208,8 +208,9 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 	}
 
 	// 1. 批量更新该会话下所有 running 状态的报告为 completed
+	endTime := summary.EndTime // time.Time → *time.Time for the model
 	updates := map[string]interface{}{
-		"end_time":       summary.EndTime,
+		"end_time":       &endTime,
 		"duration_ms":    summary.Duration.Milliseconds(),
 		"total_messages": summary.TotalMessages,
 		"success_total":  summary.SuccessTotal,
@@ -226,6 +227,36 @@ func SaveReport(summary *recorder.SessionSummary, protocolName string, protocolV
 		return fmt.Errorf("save test report failed: %w", result.Error)
 	}
 	fmt.Printf("[SaveReport] updated %d scenario records for session %s to completed\n", result.RowsAffected, summary.SessionID)
+
+	// ★ 兜底：如果该 session 没有 running 记录可更新（例如 CreateRunningReport 之前失败），
+	// 则直接创建一条 completed 记录，确保 test_reports 表不缺失
+	if result.RowsAffected == 0 {
+		endTime := summary.EndTime
+		fallback := &model.TestReport{
+			SessionID:     summary.SessionID,
+			ScenarioID:    "",
+			ScenarioName:  "",
+			PostNo:        summary.PostNo,
+			ProtocolName:  protocolName,
+			ProtocolVer:   protocolVer,
+			StartTime:     summary.StartTime,
+			EndTime:       &endTime,
+			DurationMs:    summary.Duration.Milliseconds(),
+			TotalMessages: summary.TotalMessages,
+			SuccessTotal:  summary.SuccessTotal,
+			FailTotal:     summary.FailTotal,
+			SuccessRate:   summary.SuccessRate,
+			IsPass:        summary.IsPass,
+			Status:        "completed",
+			AuthState:     authState,
+		}
+		if err := db.Create(fallback).Error; err != nil {
+			fmt.Printf("[SaveReport] create fallback report warning: %v\n", err)
+			// 不返回错误，因为 func_code_stats 和 message_archives 已写入成功
+		} else {
+			fmt.Printf("[SaveReport] created fallback report for session %s\n", summary.SessionID)
+		}
+	}
 
 	// 2. 保存功能码统计
 	for _, stat := range summary.FuncCodeStats {

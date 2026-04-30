@@ -29,6 +29,10 @@ func SeedTestData() error {
 
 	now := time.Now()
 
+	t1 := now.Add(-90 * time.Minute)
+	t2 := now.Add(-4*time.Hour + 30*time.Minute)
+	t3 := now.Add(-10 * time.Minute)
+
 	reports := []model.TestReport{
 		{
 			SessionID:     "A1B2C3D4E5F6G7H8",
@@ -36,7 +40,7 @@ func SeedTestData() error {
 			ProtocolName:  "XX标准协议",
 			ProtocolVer:   "v1.6.0",
 			StartTime:     now.Add(-2 * time.Hour),
-			EndTime:       now.Add(-90 * time.Minute),
+			EndTime:       &t1,
 			DurationMs:    int64(30 * time.Minute / time.Millisecond),
 			TotalMessages: 24,
 			SuccessTotal:  23,
@@ -51,7 +55,7 @@ func SeedTestData() error {
 			ProtocolName:  "XX标准协议",
 			ProtocolVer:   "v1.6.0",
 			StartTime:     now.Add(-5 * time.Hour),
-			EndTime:       now.Add(-4*time.Hour + 30*time.Minute),
+			EndTime:       &t2,
 			DurationMs:    int64(30 * time.Minute / time.Millisecond),
 			TotalMessages: 18,
 			SuccessTotal:  16,
@@ -66,7 +70,7 @@ func SeedTestData() error {
 			ProtocolName:  "XX标准协议",
 			ProtocolVer:   "v1.6.0",
 			StartTime:     now.Add(-1 * time.Hour),
-			EndTime:       now.Add(-10 * time.Minute),
+			EndTime:       &t3,
 			DurationMs:    int64(50 * time.Minute / time.Millisecond),
 			TotalMessages: 42,
 			SuccessTotal:  42,

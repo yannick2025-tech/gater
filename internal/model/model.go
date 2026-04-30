@@ -24,8 +24,8 @@ type TestReport struct {
 	PostNo        uint32  `gorm:"index;not null" json:"postNo"`
 	ProtocolName  string  `gorm:"size:64" json:"protocolName"`
 	ProtocolVer   string  `gorm:"size:16" json:"protocolVersion"`
-	StartTime     time.Time `gorm:"index" json:"startTime"`
-	EndTime       time.Time `json:"endTime"`
+	StartTime     time.Time  `gorm:"index" json:"startTime"`
+	EndTime       *time.Time `json:"endTime"`           // nil 表示测试尚未结束
 	DurationMs    int64   `json:"durationMs"`         // 持续时间(毫秒)
 	TotalMessages int     `json:"totalMessages"`      // 总消息数
 	SuccessTotal  int     `json:"successTotal"`       // 成功总数

@@ -217,8 +217,10 @@ watch(() => props.modelValue, async (val) => {
 
   const loadArchives = async () => {
     try {
+      // 后端 /api/test/messages/:id 返回 { list: [...] } 格式
+      // 经过 request.ts interceptor 解包 res.data 后得到 { list: [...] }
       const data = await getMessageArchives(sid, '', '')
-      allArchives.value = Array.isArray(data) ? data : []
+      allArchives.value = (data && Array.isArray(data.list)) ? data.list : []
     } catch {
       allArchives.value = []
     }

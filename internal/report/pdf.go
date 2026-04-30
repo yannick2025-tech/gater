@@ -35,7 +35,7 @@ func GeneratePDF(reportData *model.TestReport, stats []model.FuncCodeStat, archi
 		{"Post No", fmt.Sprintf("%d", reportData.PostNo)},
 		{"Protocol", fmt.Sprintf("%s %s", reportData.ProtocolName, reportData.ProtocolVer)},
 		{"Start Time", reportData.StartTime.Format(time.DateTime)},
-		{"End Time", reportData.EndTime.Format(time.DateTime)},
+		{"End Time", func() string { if reportData.EndTime != nil { return reportData.EndTime.Format(time.DateTime) }; return "--" }()},
 		{"Duration", formatDuration(reportData.DurationMs)},
 		{"Total Messages", fmt.Sprintf("%d", reportData.TotalMessages)},
 		{"Success", fmt.Sprintf("%d", reportData.SuccessTotal)},

@@ -915,14 +915,14 @@ func (r *Router) getTestDetail(c *gin.Context) {
 	cases, _ := report.GetTestCasesBySessionID(sessionID)
 
 	startTime := time.Time{}
-	endTime := time.Time{}
+	var endTime *time.Time
 	status := "running"
 	if err == nil && testReport != nil {
 		startTime = testReport.StartTime
 		endTime = testReport.EndTime
 		if testReport.IsPass {
 			status = "pass"
-		} else if testReport.Status == "completed" || !testReport.EndTime.IsZero() {
+		} else if testReport.Status == "completed" || (endTime != nil && !endTime.IsZero()) {
 			status = "fail"
 		}
 	}
@@ -938,7 +938,7 @@ func (r *Router) getTestDetail(c *gin.Context) {
 		"data": gin.H{
 			"sessionId":  sessionID,
 			"startTime":  startTime,
-			"endTime":    endTime,
+			"endTime":    func() time.Time { if endTime != nil { return *endTime }; return time.Time{} }(),
 			"status":     status,
 			"statistics": stats,
 			"cases":      cases,
