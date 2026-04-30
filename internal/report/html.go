@@ -482,12 +482,24 @@ body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Robo
 .msg-section-title::after{content:'';flex:1;height:1px;background:var(--border)}
 
 /* 代码块 — 与平台报文区保持一致的暗色风格 */
+.code-wrap{position:relative}
 .code-block{
   background:var(--code-dark-bg);border:1px solid #383838;border-radius:var(--radius-sm);
   padding:14px 16px;overflow-x:auto;font-family:'JetBrains Mono',monospace;
   font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-all;
   color:var(--code-text);max-height:380px;overflow-y:auto
 }
+.copy-btn{
+  position:absolute;top:6px;right:6px;display:inline-flex;align-items:center;gap:4px;
+  padding:4px 10px;border-radius:5px;font-size:11.5px;font-weight:500;
+  color:rgba(212,212,212,.65);background:rgba(60,60,60,.55);border:1px solid rgba(80,80,80,.45);
+  cursor:pointer;transition:all .2s ease;opacity:0;
+  font-family:'Noto Sans SC',sans-serif;z-index:2
+}
+.code-wrap:hover .copy-btn{opacity:1}
+.copy-btn:hover{background:rgba(80,80,80,.75);color:#d4d4d4;border-color:rgba(120,120,120,.5)}
+.copy-btn.copied{color:#5eecc4;background:rgba(0,180,140,.18);border-color:rgba(0,200,160,.28)}
+.copy-btn .copy-icon{font-size:13px;line-height:1}
 .code-block::-webkit-scrollbar{width:6px;height:6px}
 .code-block::-webkit-scrollbar-track{background:transparent}
 .code-block::-webkit-scrollbar-thumb{background:rgba(136,136,136,.35);border-radius:3px}
@@ -547,6 +559,7 @@ body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Robo
   .validation.pass{background:#f6ffed!important;color:#389e0d!important;border-color:#b7eb8f!important}
   .validation.fail{background:#fff2f0!important;color:#cf1322!important;border-color:#ffa39e!important}
   .detail-link{display:none!important}
+  .copy-btn{display:none!important}
 }
 
 /* 响应式 */
@@ -787,12 +800,12 @@ body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Robo
 
       {{if $m.HexData}}
       <div class="msg-section-title">HEX 原始数据</div>
-      <pre class="code-block">{{$m.HexData}}</pre>
+      <div class="code-wrap"><pre class="code-block">{{$m.HexData}}</pre><button class="copy-btn" data-target="this.parentElement.querySelector('.code-block')"><span class="copy-icon">📋</span> 复制</button></div>
       {{end}}
 
       {{if $m.JSONData}}
       <div class="msg-section-title">JSON 解析结果</div>
-      <pre class="code-block">{{$m.JSONData}}</pre>
+      <div class="code-wrap"><pre class="code-block">{{$m.JSONData}}</pre><button class="copy-btn" data-target="this.parentElement.querySelector('.code-block')"><span class="copy-icon">📋</span> 复制</button></div>
       {{end}}
     </div>
   </div>
@@ -829,6 +842,27 @@ body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Robo
         var el=document.querySelector(t);
         if(el){el.scrollIntoView({behavior:'smooth'})}
       }
+    });
+  });
+
+  // 一键复制代码块
+  document.querySelectorAll('.copy-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var code=this.parentElement.querySelector('.code-block');
+      if(!code)return;
+      var text=code.innerText||code.textContent||'';
+      navigator.clipboard.writeText(text).then(function(){
+        btn.classList.add('copied');
+        btn.innerHTML='<span class="copy-icon">✅</span> 已复制';
+        setTimeout(function(){btn.classList.remove('copied');btn.innerHTML='<span class="copy-icon">📋</span> 复制';},1800);
+      }).catch(function(){
+        // fallback for non-secure contexts
+        var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+        document.body.appendChild(ta);ta.select();document.execCommand('copy');
+        document.body.removeChild(ta);btn.classList.add('copied');
+        btn.innerHTML='<span class="copy-icon">✅</span> 已复制';
+        setTimeout(function(){btn.classList.remove('copied');btn.innerHTML='<span class="copy-icon">📋</span> 复制';},1800);
+      });
     });
   });
 })();

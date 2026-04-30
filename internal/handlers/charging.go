@@ -36,6 +36,9 @@ func (h *ChargingHandler) HandleChargerStartUpload(ctx *dispatcher.Context) erro
 	// 构建回复
 	limits := generator.DefaultChargingLimits()
 
+	// 读取WEB端传入的充电参数
+	balance, displayMode, targetSOC, energy := ctx.Session.GetChargingParams()
+
 	// 费率列表：优先从session获取WEB端传入的prices，否则使用默认值
 	var msgFees []msg.FeeItem
 	prices := ctx.Session.GetPrices()
@@ -80,15 +83,26 @@ func (h *ChargingHandler) HandleChargerStartUpload(ctx *dispatcher.Context) erro
 	reply := &msg.ChargerStartReply{
 		ChargingOrderNumber:         generator.GenerateOrderNo(),
 		ChargingPileOrderNumber:     startMsg.DeviceOrderNo,
-		AccountBalance:              50000, // 500.00元
+		AccountBalance:              uint32(balance * 100), // 前端余额(元)→协议值(分)
 		LimitTheMaximumChargeCharge: limits.MaxChargeAmount,
 		LimitTheChargingTime:        limits.MaxChargeTime,
-		LimitTheAmountOfCharging:    limits.MaxChargeEnergy,
+		LimitTheAmountOfCharging:    func() float64 {
+			if energy > 0 {
+				return energy // 前端配置的充电电量(kWh)
+			}
+			return limits.MaxChargeEnergy
+		}(),
 		LimitChargingServiceFees:    5000,
 		LimitChargingCharges:        5000,
-		LimitSOC:                    limits.MaxSOC,
+		LimitSOC:                    func() byte {
+			if targetSOC > 0 && targetSOC <= 100 {
+				return targetSOC // 前端配置的SOC目标
+			}
+			return limits.MaxSOC
+		}(),
 		ErrorCode:                   0x00,
 		AuthenticationNumber:        startMsg.AuthenticationNumber,
+		TheScreenDisplayModeNumber:  displayMode, // 前端配置的屏显模式
 		FeeNum:                      byte(len(msgFees)),
 		ListFee:                     msgFees,
 		StopCode:                    generator.GenerateStopCode(),

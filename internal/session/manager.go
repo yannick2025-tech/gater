@@ -71,6 +71,12 @@ type Session struct {
 	LastActive    time.Time
 	Prices        []PriceConfig            // 时段费率配置（WEB端传入）
 
+	// 充电参数（WEB端传入，供0x04 handler使用）
+	Balance      float64 // 账户余额（元）
+	DisplayMode  byte    // 屏显模式（0或1）
+	TargetSOC    byte    // SOC目标百分比
+	Energy       float64 // 充电电量限制（kWh）
+
 	// 充电状态追踪
 	ChargingState *ChargingState           // 充电过程状态（0x03/0x06/0x05更新）
 	SentPeakTypes  []byte                  // 0x04下发的峰谷类型列表（按时段顺序），供0x06校验用
@@ -183,6 +189,23 @@ func (s *Session) GetPrices() []PriceConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Prices
+}
+
+// SetChargingParams 设置充电参数（WEB端传入）
+func (s *Session) SetChargingParams(balance float64, displayMode byte, targetSOC byte, energy float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Balance = balance
+	s.DisplayMode = displayMode
+	s.TargetSOC = targetSOC
+	s.Energy = energy
+}
+
+// GetChargingParams 获取充电参数
+func (s *Session) GetChargingParams() (balance float64, displayMode byte, targetSOC byte, energy float64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Balance, s.DisplayMode, s.TargetSOC, s.Energy
 }
 
 // SetSentPeakTypes 存储0x04下发的峰谷类型（供0x06校验用）

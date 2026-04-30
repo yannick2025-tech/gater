@@ -91,6 +91,37 @@ func (s *BasicChargingScenario) SetParams(params map[string]interface{}) {
 			s.vinCode = vin
 		}
 	}
+
+	// 解析充电参数：balance / displayMode / targetSoc / energy
+	var balance float64
+	var displayMode byte
+	var targetSOC byte = 100 // 默认100%
+	var energy float64
+
+	if v, ok := params["balance"]; ok {
+		if b, ok := v.(float64); ok {
+			balance = b
+		}
+	}
+	if v, ok := params["displayMode"]; ok {
+		if dm, ok := v.(string); ok && (dm == "0" || dm == "1") {
+			displayMode = dm[0] - '0'
+		}
+	}
+	if v, ok := params["targetSoc"]; ok {
+		if soc, ok := v.(float64); ok && soc > 0 && soc <= 100 {
+			targetSOC = byte(soc)
+		}
+	}
+	if v, ok := params["energy"]; ok {
+		if e, ok := v.(float64); ok && e > 0 {
+			energy = e
+		}
+	}
+	s.sess.SetChargingParams(balance, displayMode, targetSOC, energy)
+	s.logger.Infof("[scenario:%s] stored charging params: balance=%.2f displayMode=%d targetSOC=%d energy=%.2f",
+		s.sessionID, balance, displayMode, targetSOC, energy)
+
 	// 解析时段费率并存入session（供0x04 handler使用）
 	if v, ok := params["prices"]; ok {
 		if pricesRaw, ok := v.([]interface{}); ok {
@@ -264,8 +295,12 @@ func (s *BasicChargingScenario) executeStep() {
 
 	// 步骤0：平台下发0x03启动充电
 	if step.FuncCode == types.FuncPlatformStart && step.Direction == types.DirectionDownload {
+		startupType := byte(1) // 默认：远程鉴权-扫码
+		if s.vinCode != "" {
+			startupType = 11 // 有VIN码时：远程鉴权-VIN
+		}
 		startMsg := &msg.PlatformStartDownload{
-			StartupType:          1, // 1-远程鉴权-扫码（APP/微信小程序启动）
+			StartupType:          startupType,
 			AuthenticationNumber: s.vinCode,
 		}
 		if err := sendFn(startMsg); err != nil {
