@@ -111,8 +111,10 @@ func GenerateHTML(sessionID string) (string, error) {
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"fmtDate":    func(t time.Time) string { return t.Format("2006-01-02 15:04:05") },
 		"fmtDateMs":  func(t time.Time) string { return t.Format("2006-01-02 15:04:05.000") },
+		"fmtDatePtr": func(t *time.Time) string { if t == nil || t.IsZero() { return "--" }; return t.Format("2006-01-02 15:04:05") },
 		"fmtRate":    func(r float64) string { return fmt.Sprintf("%.1f%%", r) },
 		"fmtDur":     func(ms int64) string { return formatDuration(ms) },
+		"add":        func(a, b int) int { return a + b },
 		"statusIcon": func(passed bool) string { if passed { return "✅" }; return "❌" },
 		"resultClass": func(r string) string {
 			switch r {
@@ -281,16 +283,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;c
   <div class="meta">
     <span>桩号: {{.Session.PostNo}}</span>
     <span>Session: {{.Session.ID}}</span>
-    <span>协议: {{.Session.ProtocolName}} {{.Session.ProtocolVersion}}</span>
+    <span>协议: {{.Session.ProtocolName}} {{.Session.ProtocolVer}}</span>
     <span>连接时间: {{fmtDate .Session.CreatedAt}}</span>
-    <span>断开时间: {{if .Session.ClosedAt}}{{fmtDate .Session.ClosedAt.Time}}{{else}}--{{end}}</span>
+    <span>断开时间: {{fmtDatePtr .Session.ClosedAt}}</span>
   </div>
 </div>
 
 <!-- 锚点导航 -->
 <div class="nav-bar">
 {{range $i, $sr := .Reports}}
-  <a href="#sc-{{$sr.Report.ScenarioID}}">场景{{$i.Add 1}}: {{$sr.Report.ScenarioName}}</a>
+  <a href="#sc-{{$sr.Report.ScenarioID}}">场景{{add $i 1}}: {{$sr.Report.ScenarioName}}</a>
 {{end}}
 </div>
 
@@ -304,7 +306,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;c
   <div class="scenario-header">
     <h2>
       {{if $sr.Report.IsPass}}✅{{else}}❌{{end}}
-      场景{{$i.Add 1}}: {{$sr.Report.ScenarioName}}
+      场景{{add $i 1}}: {{$sr.Report.ScenarioName}}
       <span class="scenario-id">{{$sr.Report.ScenarioID}}</span>
     </h2>
   </div>
