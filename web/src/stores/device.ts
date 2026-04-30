@@ -71,6 +71,14 @@ export const useDeviceStore = defineStore('device', () => {
     try {
       const data = await getSessions()
       sessionList.value = data.list || []
+      // 同步 selectedSession 的最新数据（testStatus/isOnline 等可能已变化）
+      if (selectedSession.value) {
+        const updated = sessionList.value.find(s => s.sessionId === selectedSession.value!.sessionId)
+        if (updated) {
+          selectedSession.value = updated
+          deviceInfo.value.isOnline = updated.isOnline
+        }
+      }
     } catch (e) {
       sessionList.value = []
     }

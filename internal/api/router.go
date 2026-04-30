@@ -659,6 +659,9 @@ func (r *Router) stopTest(c *gin.Context) {
 		return
 	}
 
+	// ★ 停止场景引擎中的场景（将内存状态从 running → completed，否则 getSessions 仍返回 testStatus=running）
+	r.scenarioEngine.StopScenario(req.SessionID)
+
 	// ★ 同步保存当前统计快照到 DB（确保停止充电后立即可查看详情）
 	// 注意：这里同步执行 SaveReport，保证 API 返回时数据已入库，
 	// 用户点击"查看详情"时能同时看到统计数据和报文存档

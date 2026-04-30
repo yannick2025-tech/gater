@@ -162,6 +162,8 @@ async function handleStopTest() {
   if (!sessionId) return
   try {
     await stopTestApi(sessionId)
+    // 立即标记测试不再运行，允许用户启动新测试
+    isTestRunning.value = false
     ElMessage.success('已发送结束充电指令')
   } catch (e: any) {
     ElMessage.error(e?.message || '结束充电失败')
