@@ -258,25 +258,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 	}
 	sess.Recorder.RecordRecv(header.FuncCode, msgStatus, hexData, jsonData, decodeErr)
 
-	// 6.1 异步存档消息到数据库 + 实时更新统计（不影响主流程）
-	go func() {
-		if msg != nil || hexData != "" {
-			caseID := ""
-			if sess.Recorder != nil {
-				caseID = sess.Recorder.GetCurrentCase()
-			}
-			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
-				Timestamp: time.Now(),
-				FuncCode:  header.FuncCode,
-				Direction: dir,
-				Status:    msgStatus,
-				HexData:   hexData,
-				JSONData:  jsonData,
-				ErrorMsg:  decodeErr,
-				CaseID:    caseID,
-			})
-		}
-	}()
+	// 消息存档统一由断开时 SaveReport 批量刷写，不再实时逐条写入
 
 	// 7. 日志（完整帧hex + 完整消息json，带sessionID便于定位完整会话周期）
 	frameHex := fmt.Sprintf("% X", rawFrame)
@@ -340,9 +322,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			replyHeader.DataLength = uint16(replyFrame[10]) | uint16(replyFrame[11])<<8
 		}
 
-		replyHex := fmt.Sprintf("% X", replyData)
 		replyFrameHex := fmt.Sprintf("% X", replyFrame)
-		sess.Recorder.RecordReply(replyHeader.FuncCode, recorder.StatusSuccess, replyHex, "", "")
 
 		// 日志：发送的回复消息，带sessionID，打印完整帧hex + 完整消息json
 		// 解码回复消息体以构建JSON
@@ -357,23 +337,8 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 		logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: %s", sess.ID, replyHeader.FuncCode, replyFrameHex)
 		logger.Infof("[%s] [GATER→Post] [0x%02X] JSON: %s", sess.ID, replyHeader.FuncCode, replyJSON)
 
-		// 异步存档回复消息
-		go func() {
-			caseID := ""
-			if sess.Recorder != nil {
-				caseID = sess.Recorder.GetCurrentCase()
-			}
-			_ = report.SaveMessageArchive(sess.ID, recorder.MessageRecord{
-				Timestamp: time.Now(),
-				FuncCode:  replyHeader.FuncCode,
-				Direction: types.DirectionReply,
-				Status:    recorder.StatusSuccess,
-				HexData:   replyFrameHex,
-				JSONData:  replyJSON,
-				ErrorMsg:  "",
-				CaseID:    caseID,
-			})
-		}()
+		// 回复消息存档统一由断开时 SaveReport 批量刷写
+		sess.Recorder.RecordReply(replyHeader.FuncCode, recorder.StatusSuccess, replyFrameHex, replyJSON, "")
 
 		return conn.SendFrame(replyFrame)
 	}
@@ -429,9 +394,7 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 			}
 
 			// 日志
-			dlHex := fmt.Sprintf("% X", dlData)
 			dlFrameHex := fmt.Sprintf("% X", dlFrame)
-			sess.Recorder.RecordReply(dlHeader.FuncCode, recorder.StatusSuccess, dlHex, "", "")
 
 			var dlReplyMsg types.Message
 			if dlRegMsg, ok := proto.Registry().Create(dlHeader.FuncCode, types.DirectionDownload); ok && len(dlData) > 0 {
@@ -439,6 +402,10 @@ func onMessage(conn *server.Connection, header types.MessageHeader, data []byte,
 				dlReplyMsg = dlRegMsg
 			}
 			dlJSON := buildMessageJSON(dlHeader, dlReplyMsg)
+
+			// 记录平台下发消息（方向=平台→充电桩，与回复区分）
+			sess.Recorder.RecordSend(dlHeader.FuncCode, recorder.StatusSuccess, dlFrameHex, dlJSON, "")
+
 			logger.Infof("[%s] [GATER→Post] [0x%02X] postNo=%d charger=%d dataLen=%d",
 				sess.ID, dlHeader.FuncCode, dlHeader.PostNo, dlHeader.Charger, len(dlData))
 			logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: %s", sess.ID, dlHeader.FuncCode, dlFrameHex)

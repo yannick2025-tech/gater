@@ -10,6 +10,7 @@ import (
 	"github.com/yannick2025-tech/nts-gater/internal/model"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/standard/msg"
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+	"github.com/yannick2025-tech/nts-gater/internal/recorder"
 	"github.com/yannick2025-tech/nts-gater/internal/report"
 	"github.com/yannick2025-tech/nts-gater/internal/server"
 	"github.com/yannick2025-tech/nts-gater/internal/session"
@@ -321,15 +322,28 @@ func (e *Engine) createSendFn(sess *session.Session, conn *server.Connection) Se
 			header.EncryptFlag = 0x01
 		}
 
-		// 发送前先打印日志（不等回复，方便定位问题）
+		// 编码完整帧（用于日志和存档）
+		encryptFn := sess.GetEncryptFn()
+		frame, encErr := conn.Encoder.Encode(header, data, encryptFn)
+		if encErr != nil {
+			return fmt.Errorf("encode frame failed: %w", encErr)
+		}
+
+		frameHex := fmt.Sprintf("% X", frame)
+		msgJSON, _ := json.Marshal(msg.ToJSONMap())
+		msgJSONStr := string(msgJSON)
+
+		// 记录平台主动下发消息到 Recorder
+		if sess.Recorder != nil {
+			sess.Recorder.RecordSend(spec.FuncCode, recorder.StatusSuccess, frameHex, msgJSONStr, "")
+		}
+
+		// 日志
 		e.logger.Infof("[%s] [GATER→Post] [0x%02X] postNo=%d charger=%d dataLen=%d",
 			sess.ID, spec.FuncCode, sess.PostNo, header.Charger, len(data))
-		e.logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: % X", sess.ID, spec.FuncCode, data)
-		msgJSON, _ := json.Marshal(msg.ToJSONMap())
-		e.logger.Infof("[%s] [GATER→Post] [0x%02X] JSON: %s", sess.ID, spec.FuncCode, string(msgJSON))
+		e.logger.Infof("[%s] [GATER→Post] [0x%02X] HEX: %s", sess.ID, spec.FuncCode, frameHex)
+		e.logger.Infof("[%s] [GATER→Post] [0x%02X] JSON: %s", sess.ID, spec.FuncCode, msgJSONStr)
 
-		encryptFn := sess.GetEncryptFn()
-
-		return conn.Send(header, data, encryptFn)
+		return conn.SendFrame(frame)
 	}
 }
