@@ -5,6 +5,7 @@ import { getTestResults, getTestStatus, startTest as startTestApi, configDownloa
 import type { ConfigItem } from '@/types/test'
 import { ElMessage } from 'element-plus'
 import { useDeviceStore } from '@/stores/device'
+import { useRouter } from 'vue-router'
 
 export const useTestStore = defineStore('test', () => {
   const testResults = ref<any[]>([])
@@ -108,9 +109,34 @@ export const useTestStore = defineStore('test', () => {
     }
   }
 
-  function exportReport() {
+  // 当前活跃的 sessionId（供外部设置，解决断开连接后 selectedSession 被清空的问题）
+  const currentExportSessionId = ref('')
+
+  function setExportSessionId(sid: string) {
+    currentExportSessionId.value = sid
+  }
+
+  /**
+   * 按优先级获取当前会话 ID：
+   * 1. 显式设置的 currentExportSessionId（组件主动设置，最可靠）
+   * 2. deviceStore.selectedSession（正常选中状态）
+   * 3. URL 路由参数（新开浏览器/刷新后从 URL 恢复）
+   */
+  function resolveSessionId(): string {
+    // 优先级1：显式设置
+    if (currentExportSessionId.value) return currentExportSessionId.value
+    // 优先级2：选中的会话
     const deviceStore = useDeviceStore()
-    const sessionId = deviceStore.selectedSession?.sessionId || ''
+    if (deviceStore.selectedSession?.sessionId) return deviceStore.selectedSession.sessionId
+    // 优先级3：URL 路由参数
+    const router = useRouter()
+    const urlSid = router.currentRoute.value.params.sessionId as string
+    if (urlSid) return urlSid
+    return ''
+  }
+
+  function exportReport() {
+    const sessionId = resolveSessionId()
     if (!sessionId) {
       ElMessage.warning('请先选择一个会话')
       return
@@ -212,5 +238,6 @@ export const useTestStore = defineStore('test', () => {
     testResults, total, currentPage, pageSize, loading, currentStatus, currentScenarioId,
     fetchResults, fetchResultsBySession, startTest, startTestWithConfig, startConfigTest, exportReport,
     startPolling, stopPolling, markTestCompleted,
+    setExportSessionId, currentExportSessionId,
   }
 })

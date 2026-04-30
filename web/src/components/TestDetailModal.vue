@@ -225,6 +225,14 @@ watch(() => props.modelValue, async (val) => {
   }
 
   await Promise.all([loadStats(), loadArchives()])
+
+  // ★ 防御性重试：如果统计有数据但报文存档为空，说明后端 SaveReport 可能还在写入中
+  // 等待 1.5 秒后重试一次报文加载（最多重试 1 次）
+  if (statistics.value.length > 0 && allArchives.value.length === 0) {
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    await loadArchives()
+  }
+
   loading.value = false
 })
 

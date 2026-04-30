@@ -662,8 +662,19 @@ func (r *Router) stopTest(c *gin.Context) {
 		return
 	}
 
-	// 标记该会话下最新的 running 场景为 completed（用户主动结束测试）
-	go func() {
+	// ★ 同步保存当前统计快照到 DB（确保停止充电后立即可查看详情）
+	// 注意：这里同步执行 SaveReport，保证 API 返回时数据已入库，
+	// 用户点击"查看详情"时能同时看到统计数据和报文存档
+	if sess, ok := r.sessMgr.Get(req.SessionID); ok && sess.Recorder != nil {
+		summary := sess.Recorder.Summary()
+		authState := sess.GetAuthState().String()
+		if err := report.SaveReport(summary, "XX标准协议", "v1.6.0", authState, sess.Recorder); err != nil {
+			r.logger.Errorf("[stopTest] save report error: %v", err)
+		} else {
+			r.logger.Infof("[stopTest] stats snapshot saved for session %s", req.SessionID)
+		}
+
+		// 标记该会话下最新的 running 场景为 completed
 		reports, _ := report.GetTestReportsBySessionID(req.SessionID)
 		for i := len(reports) - 1; i >= 0; i-- {
 			if reports[i].Status == "running" {
@@ -671,19 +682,7 @@ func (r *Router) stopTest(c *gin.Context) {
 				break // 只更新最新的一条 running 记录
 			}
 		}
-
-		// ★ 立即保存当前统计快照到DB（不等待断开连接）
-		// 这样用户在停止充电后、断开前查看详情，也能看到完整的统计数据
-		if sess, ok := r.sessMgr.Get(req.SessionID); ok && sess.Recorder != nil {
-			summary := sess.Recorder.Summary()
-			authState := sess.GetAuthState().String()
-			if err := report.SaveReport(summary, "XX标准协议", "v1.6.0", authState, sess.Recorder); err != nil {
-				r.logger.Errorf("[stopTest] partial save report error: %v", err)
-			} else {
-				r.logger.Infof("[stopTest] stats snapshot saved for session %s", req.SessionID)
-			}
-		}
-	}()
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,

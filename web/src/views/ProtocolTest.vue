@@ -234,12 +234,14 @@ onMounted(async () => {
       (s: SessionItem) => s.sessionId === urlSessionId
     )
     if (matchedSession) {
-      handleSelectSession(matchedSession)
+      handleSelectSession(matchedSession) // 内部会调用 setExportSessionId
       // 如果是已断开的历史会话，标记为 disconnected 状态以保持详情视图
       if (!matchedSession.isOnline) {
         isDisconnected.value = true
         disconnectedSession.value = { ...matchedSession }
       }
+      // ★ 显式等待该会话的测试结果加载完成（解决新开浏览器结果为空的问题）
+      await testStore.fetchResultsBySession(urlSessionId)
     } else {
       // URL中的sessionId在列表中未找到（可能已被清理），回退到列表页
       router.replace('/')
@@ -254,6 +256,7 @@ onMounted(async () => {
   )
   if (runningSession) {
     handleSelectSession(runningSession)
+    await testStore.fetchResultsBySession(runningSession.sessionId)
   }
   deviceStore.startSessionPolling(10000)
 })
@@ -269,6 +272,8 @@ onUnmounted(() => {
 
 function handleSelectSession(session: SessionItem) {
   deviceStore.selectSession(session)
+  // ★ 同步导出用的 sessionId（解决断开后 selectedSession 被清空导致无法导出的问题）
+  testStore.setExportSessionId(session.sessionId)
   // 选择新会话时清除断开状态
   isDisconnected.value = false
   disconnectedSession.value = null
@@ -288,6 +293,7 @@ function handleSelectSession(session: SessionItem) {
 
 function handleBackToList() {
   deviceStore.reset()
+  testStore.setExportSessionId('') // 清理导出 sessionId
   isTestRunning.value = false
   isDisconnected.value = false
   disconnectedSession.value = null
@@ -298,10 +304,12 @@ function handleBackToList() {
 }
 
 function handleDisconnect() {
-  // 1. 保存当前会话信息（断开后用于显示测试结果）
+  // 1. 保存当前会话信息（断开后用于显示测试结果和导出报告）
   const sess = deviceStore.selectedSession
   if (sess) {
     disconnectedSession.value = { ...sess }
+    // ★ 断开后保持导出 sessionId（selectedSession 会被 reset 清空）
+    testStore.setExportSessionId(sess.sessionId)
   }
   isDisconnected.value = true
 
