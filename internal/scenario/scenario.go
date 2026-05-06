@@ -312,6 +312,17 @@ func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scen
 	e.scenarios[sessionID] = sc
 	e.logger.Infof("[scenario] started %s for session=%s postNo=%d items=%d", sc.Name(), sessionID, sess.PostNo, len(items))
 
+	// 生成场景UUID（与 StartScenario 保持一致）
+	scenarioID := report.GenerateScenarioID()
+
+	// 写入 running 占位记录到数据库（与 StartScenario 保持一致）
+	if err := report.CreateRunningReport(sessionID, sess.PostNo, "config_download", scenarioID); err != nil {
+		e.logger.Warnf("[scenario] createRunningReport warning for config_download: %v", err)
+	}
+
+	// 创建默认用例记录并设置 Recorder 当前 caseID（确保报文存档关联到此用例）
+	e.createDefaultTestCase(sessionID, sess, "config_download", scenarioID)
+
 	return sc, nil
 }
 

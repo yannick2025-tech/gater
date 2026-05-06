@@ -129,6 +129,12 @@ func (s *ConfigDownloadScenario) SetConfigItems(items []ConfigItem) error {
 			if errs := payload.Validate(); len(errs) > 0 {
 				return fmt.Errorf("item[%d]: 0xC2 validation failed: %v", i, errs)
 			}
+			// 预编码：将 Value 字符串转为 ValueBytes，确保 ToJSONMap 日志和后续 Encode() 都有正确数据
+			for j := range payload.ParamList {
+				if err := payload.ParamList[j].EncodeValue(); err != nil {
+					return fmt.Errorf("item[%d]: 0xC2 encode param[%d] failed: %v", i, j, err)
+				}
+			}
 			pendingMsg = &payload
 
 		case types.FuncBillingRules: // 0x22
