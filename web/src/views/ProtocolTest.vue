@@ -81,6 +81,8 @@ const selectedSessionId = ref<string>('')
 
 // 本地测试运行状态（立即响应，不依赖session列表轮询）
 const isTestRunning = ref(false)
+// 配置下发独立运行状态（不与充电共享，避免按钮状态闪烁）
+const isConfigRunning = ref(false)
 // 断开连接后保持显示当前会话的测试结果（不退回到会话列表）
 const isDisconnected = ref(false)
 const disconnectedSession = ref<SessionItem | null>(null)
@@ -107,8 +109,10 @@ const viewMode = computed<'select' | 'detail'>(() => {
 /** 是否有活跃会话且未在测试中（用于控制"开始测试"按钮） */
 const hasActiveSession = computed(() => {
   if (selectionState.value !== 'active') return false
-  // 本地标记或session列表都标记running时，禁用按钮
+  // 充电运行中禁用按钮（配置下发用独立状态 isConfigRunning 控制）
   if (isTestRunning.value) return false
+  // 配置下发运行中禁用按钮
+  if (isConfigRunning.value) return false
   const sess = deviceStore.selectedSession
   if (sess?.testStatus === 'running') return false
   return true
@@ -119,7 +123,7 @@ const chargingInfo = ref<any>(null)
 const chargingPollTimer = ref<ReturnType<typeof setInterval> | null>(null)
 
 const isCharging = computed(() => {
-  // 本地标记测试运行中即可显示充电面板和结束按钮
+  // 仅充电测试运行中显示充电面板和结束按钮（配置下发不触发）
   return isTestRunning.value
 })
 
@@ -371,9 +375,13 @@ function handleConfigStart(gunNumber: string, items: Array<{ funcCode: number; p
     ElMessage.warning('无法获取设备编号')
     return
   }
-  isTestRunning.value = true
-  testStore.startConfigTest(gn, items).catch(() => {
-    isTestRunning.value = false
+  // 使用独立状态，不影响充电按钮和面板显示
+  isConfigRunning.value = true
+  testStore.startConfigTest(gn, items).then(() => {
+    // 配置下发完成后延迟重置状态（给用户看到"运行中"反馈）
+    setTimeout(() => { isConfigRunning.value = false }, 1500)
+  }).catch(() => {
+    isConfigRunning.value = false
   })
 }
 

@@ -653,12 +653,12 @@ body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Robo
 </div>
 {{end}}
 
-{{$sci := i64 0}}{{range $_,$sr := .Reports}}
+{{$sci := i64 0}}{{$sidx := i64 1}}{{range $_,$sr := .Reports}}
 <div class="scenario" id="sc-{{$sr.Report.ScenarioID}}" style="animation-delay:{{$sci}}ms">
   <div class="scenario-header">
     <h2>
       <span class="status-indicator {{if $sr.Report.IsPass}}pass{{else}}fail{{end}}"></span>
-      场景{{$sci}} · {{$sr.Report.ScenarioName}}
+      场景{{$sidx}} · {{$sr.Report.ScenarioName}}
       <span class="scenario-id-tag">{{$sr.Report.ScenarioID}}</span>
     </h2>
     <span class="badge-status {{if $sr.Report.IsPass}}pass{{else}}fail{{end}}">
@@ -761,7 +761,7 @@ body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Robo
     {{end}}
   </div>
 </div>
-{{$sci = add $sci 80}}
+{{$sci = add $sci 80}}{{$sidx = add $sidx (i64 1)}}
 {{end}}
 
 <!-- ══ 报文明细区 ══ -->

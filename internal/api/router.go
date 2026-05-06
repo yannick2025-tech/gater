@@ -1145,24 +1145,25 @@ func (r *Router) configDownload(c *gin.Context) {
 		sess.SetAuthState(session.Authenticated)
 	}
 
-	sc, err := r.scenarioEngine.StartConfigScenario(sess.ID, req.Items)
+	sc, scenarioID, err := r.scenarioEngine.StartConfigScenario(sess.ID, req.Items)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 
-		result := sc.Result()
+	result := sc.Result()
 	c.JSON(http.StatusOK, gin.H{
-			"code": 200,
-			"data": gin.H{
-				"sessionId": sess.ID,
-				"status":    string(result.State),
-				"testCase":  "config_download",
-				"progress":  result.Progress,
-				"stepName":  result.StepName,
-				"stepTotal": result.StepTotal,
-			},
-		})
+		"code": 200,
+		"data": gin.H{
+			"sessionId":   sess.ID,
+			"scenarioId":  scenarioID,
+			"status":      string(result.State),
+			"testCase":    "config_download",
+			"progress":    result.Progress,
+			"stepName":    result.StepName,
+			"stepTotal":   result.StepTotal,
+		},
+	})
 }
 
 // apiLoggingMiddleware 记录所有 Web↔Gater 接口请求和响应

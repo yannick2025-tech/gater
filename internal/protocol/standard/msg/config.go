@@ -123,7 +123,7 @@ func (p *ParamItem) UnmarshalJSON(data []byte) error {
 
 // EncodeValue 根据地址序号(seq)将可读 Value 字符串编码为二进制 ValueBytes。
 // 编码规则参照协议文档"附录-配置项列表"：
-//   - ASCII 类型（seq=1,4,5,6,25,52,53,77,79,80,81,82,93）: ASCII 字符串，右侧 0x00 填充
+//   - ASCII 类型：ASCII 字符串，右侧 0x00 填充到协议定义的固定长度
 //   - IP 类型（seq=8,10,11,12）: 4 字节 IP 地址
 //   - BYTE[n] 数值类型（seq=0,2,3,7,9 等）: 按 n 字节小端整数编码
 //   - BCD 类型（seq=14,23,24）: BCD 编码
@@ -140,9 +140,33 @@ func (p *ParamItem) EncodeValue() error {
 	}
 
 	switch p.Seq {
-	// ASCII 类型
-	case 1, 4, 5, 6, 25, 52, 53, 77, 79, 80, 81, 82, 93:
-		p.ValueBytes = []byte(p.Value)
+	// ASCII 类型（必须右填充 0x00 到协议定义的固定长度）
+	case 1: // 设备串号 ASCII[20]
+		p.ValueBytes = padRight([]byte(p.Value), 20)
+	case 4: // 软件版本号 ASCII[10]
+		p.ValueBytes = padRight([]byte(p.Value), 10)
+	case 5: // 硬件版本号 ASCII[10]
+		p.ValueBytes = padRight([]byte(p.Value), 10)
+	case 6: // 服务器地址 ASCII[30]
+		p.ValueBytes = padRight([]byte(p.Value), 30)
+	case 25: // 二维码 ASCII[100]
+		p.ValueBytes = padRight([]byte(p.Value), 100)
+	case 52: // A枪桩体号 ASCII[20]
+		p.ValueBytes = padRight([]byte(p.Value), 20)
+	case 53: // B枪桩体号 ASCII[20]
+		p.ValueBytes = padRight([]byte(p.Value), 20)
+	case 77: // 用户支付二维码 ASCII[50]
+		p.ValueBytes = padRight([]byte(p.Value), 50)
+	case 79: // 左枪二维码文字描述 ASCII[100]
+		p.ValueBytes = padRight([]byte(p.Value), 100)
+	case 80: // 左枪二维码 ASCII[100]
+		p.ValueBytes = padRight([]byte(p.Value), 100)
+	case 81: // 右枪二维码文字描述 ASCII[100]
+		p.ValueBytes = padRight([]byte(p.Value), 100)
+	case 82: // 右枪二维码 ASCII[100]
+		p.ValueBytes = padRight([]byte(p.Value), 100)
+	case 93: // 运营商ID ASCII[32]
+		p.ValueBytes = padRight([]byte(p.Value), 32)
 
 	// IP 地址类型 (4 字节)
 	case 8, 10, 11, 12, 13:
@@ -342,4 +366,14 @@ func (m *ConfigDownloadReply) ToJSONMap() map[string]interface{} {
 		items[i] = map[string]interface{}{"seq": r.Seq, "resultCode": r.ResultCode}
 	}
 	return map[string]interface{}{"paramCount": m.ParamCount, "resultList": items}
+}
+
+// padRight 将字节切片右侧填充 0x00 到指定长度（协议固定长度字段）
+func padRight(data []byte, length int) []byte {
+	if len(data) >= length {
+		return data[:length] // 截断超长数据
+	}
+	padded := make([]byte, length)
+	copy(padded, data)
+	return padded
 }

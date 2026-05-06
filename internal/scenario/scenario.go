@@ -135,18 +135,18 @@ func (e *Engine) StartScenario(sessionID string, testCase string, params map[str
 	}
 
 	sc.SetSendFunc(sendFn)
+
+	// ★ 必须在 Start() 之前设置 currentCaseID，因为 Start() 内部会异步执行
+	//    sendFn→RecordSend，需要确保 caseId 已正确指向当前场景
+	scenarioID := report.GenerateScenarioID()
+	e.createDefaultTestCase(sessionID, sess, testCase, scenarioID)
+
 	if err := sc.Start(); err != nil {
 		return nil, "", err
 	}
 
 	e.scenarios[sessionID] = sc
 	e.logger.Infof("[scenario] started %s for session=%s postNo=%d", sc.Name(), sessionID, sess.PostNo)
-
-	// 生成场景UUID（与 CreateRunningReport 使用同一个ID）
-	scenarioID := report.GenerateScenarioID()
-
-	// 同步创建默认用例记录（直接传scenarioID，无需查询DB，无竞态条件）
-	e.createDefaultTestCase(sessionID, sess, testCase, scenarioID)
 
 	return sc, scenarioID, nil
 }
@@ -275,15 +275,15 @@ func (e *Engine) SendStopCharge(sessionID string) error {
 }
 
 // StartConfigScenario 启动配置下发场景（需要额外的JSON配置项）
-func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scenario, error) {
+func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scenario, string, error) {
 	sess, ok := e.sessMgr.Get(sessionID)
 	if !ok {
-		return nil, ErrSessionNotFound
+		return nil, "", ErrSessionNotFound
 	}
 
 	if existing, ok := e.scenarios[sessionID]; ok {
 		if existing.State() == StateRunning {
-			return nil, ErrScenarioAlreadyRunning
+			return nil, "", ErrScenarioAlreadyRunning
 		}
 		// 旧场景已完成/失败/空闲，自动清理以允许新场景启动
 		delete(e.scenarios, sessionID)
@@ -301,29 +301,30 @@ func (e *Engine) StartConfigScenario(sessionID string, items []ConfigItem) (Scen
 
 	sc := NewConfigDownloadScenario(sessionID, sess, e.proto, e.logger)
 	if err := sc.SetConfigItems(items); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	sc.SetSendFunc(sendFn)
+
+	// ★ 先生成场景ID、创建用例记录并设置 Recorder currentCaseID（必须在 Start 之前完成，
+	//    因为 Start() 内部异步 executeStep() 会立即调用 sendFn→RecordSend，
+	//    需要确保 currentCaseID 已指向当前场景的 caseID）
+	scenarioID := report.GenerateScenarioID()
+
+	if err := report.CreateRunningReport(sessionID, sess.PostNo, "config_download", scenarioID); err != nil {
+		e.logger.Warnf("[scenario] createRunningReport warning for config_download: %v", err)
+	}
+
+	e.createDefaultTestCase(sessionID, sess, "config_download", scenarioID)
+
 	if err := sc.Start(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	e.scenarios[sessionID] = sc
 	e.logger.Infof("[scenario] started %s for session=%s postNo=%d items=%d", sc.Name(), sessionID, sess.PostNo, len(items))
 
-	// 生成场景UUID（与 StartScenario 保持一致）
-	scenarioID := report.GenerateScenarioID()
-
-	// 写入 running 占位记录到数据库（与 StartScenario 保持一致）
-	if err := report.CreateRunningReport(sessionID, sess.PostNo, "config_download", scenarioID); err != nil {
-		e.logger.Warnf("[scenario] createRunningReport warning for config_download: %v", err)
-	}
-
-	// 创建默认用例记录并设置 Recorder 当前 caseID（确保报文存档关联到此用例）
-	e.createDefaultTestCase(sessionID, sess, "config_download", scenarioID)
-
-	return sc, nil
+	return sc, scenarioID, nil
 }
 
 // createSendFunc 创建消息发送函数
