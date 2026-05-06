@@ -28,11 +28,12 @@ import (
 
 // ConfigDownloadStep 配置下发步骤
 type ConfigDownloadStep struct {
-	Name      string `json:"name"`
-	FuncCode  byte   `json:"funcCode"`
-	Direction types.Direction
-	Completed bool   `json:"completed"`
-	Result    string `json:"result"`
+	Name       string         `json:"name"`
+	FuncCode   byte           `json:"funcCode"`
+	Direction  types.Direction
+	Completed  bool           `json:"completed"`
+	Result     string         `json:"result"`
+	pendingMsg types.Message  // 校验通过后待下发的消息实例
 }
 
 // ConfigDownloadScenario 平台下发配置测试场景
@@ -156,11 +157,11 @@ func (s *ConfigDownloadScenario) SetConfigItems(items []ConfigItem) error {
 			return fmt.Errorf("item[%d]: unsupported funcCode 0x%02X (supported: 0xC2, 0x22, 0x0C)", i, item.FuncCode)
 		}
 
-		_ = pendingMsg // will be used in Start
 		steps = append(steps, ConfigDownloadStep{
-			Name:      stepName,
-			FuncCode:  item.FuncCode,
-			Direction: types.DirectionDownload,
+			Name:       stepName,
+			FuncCode:   item.FuncCode,
+			Direction:  types.DirectionDownload,
+			pendingMsg: pendingMsg,
 		})
 	}
 
@@ -272,17 +273,10 @@ func (s *ConfigDownloadScenario) executeStep() {
 
 	s.logger.Infof("[scenario:%s] executing step %d/%d: %s", s.sessionID, stepIdx+1, len(s.steps), step.Name)
 
-	// 构建并发送消息
-	var sendMsg types.Message
-	switch step.FuncCode {
-	case types.FuncConfigDownload:
-		sendMsg = &msg.ConfigDownloadMsg{}
-	case types.FuncBillingRules:
-		sendMsg = &msg.BillingRulesDownload{}
-	case types.FuncDeviceQuery:
-		sendMsg = &msg.DeviceQueryDownload{}
-	default:
-		s.fail(fmt.Sprintf("unsupported funcCode 0x%02X", step.FuncCode))
+	// 使用 SetConfigItems 中校验通过并存储的消息实例
+	sendMsg := step.pendingMsg
+	if sendMsg == nil {
+		s.fail(fmt.Sprintf("step %d has no pending message (funcCode=0x%02X)", stepIdx, step.FuncCode))
 		return
 	}
 

@@ -2,7 +2,11 @@
 package msg
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"net"
+	"strconv"
 
 	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
 )
@@ -117,6 +121,87 @@ func (p *ParamItem) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// EncodeValue 根据地址序号(seq)将可读 Value 字符串编码为二进制 ValueBytes。
+// 编码规则参照协议文档"附录-配置项列表"：
+//   - ASCII 类型（seq=1,4,5,6,25,52,53,77,79,80,81,82,93）: ASCII 字符串，右侧 0x00 填充
+//   - IP 类型（seq=8,10,11,12）: 4 字节 IP 地址
+//   - BYTE[n] 数值类型（seq=0,2,3,7,9 等）: 按 n 字节小端整数编码
+//   - BCD 类型（seq=14,23,24）: BCD 编码
+//
+// 如果 ValueBytes 已有值（前端直接传入），优先使用 ValueBytes。
+func (p *ParamItem) EncodeValue() error {
+	// 如果前端已直接提供 ValueBytes，直接使用
+	if len(p.ValueBytes) > 0 {
+		return nil
+	}
+
+	if p.Value == "" {
+		return fmt.Errorf("param seq %d: value is empty", p.Seq)
+	}
+
+	switch p.Seq {
+	// ASCII 类型
+	case 1, 4, 5, 6, 25, 52, 53, 77, 79, 80, 81, 82, 93:
+		p.ValueBytes = []byte(p.Value)
+
+	// IP 地址类型 (4 字节)
+	case 8, 10, 11, 12, 13:
+		ip := net.ParseIP(p.Value)
+		if ip == nil {
+			return fmt.Errorf("param seq %d: invalid IP address %q", p.Seq, p.Value)
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			return fmt.Errorf("param seq %d: not an IPv4 address %q", p.Seq, p.Value)
+		}
+		p.ValueBytes = ip4
+
+	// 端口号 / BYTE[2] 数值类型
+	case 3, 7, 9, 22, 26, 27, 28, 29, 30, 31, 35, 36, 37, 38, 44, 45, 46, 47, 48, 49, 50, 51, 57, 62, 64, 65, 95:
+		v, err := strconv.ParseUint(p.Value, 10, 16)
+		if err != nil {
+			return fmt.Errorf("param seq %d: invalid uint16 value %q: %v", p.Seq, p.Value, err)
+		}
+		buf := make([]byte, 2)
+		binary.LittleEndian.PutUint16(buf, uint16(v))
+		p.ValueBytes = buf
+
+	// BYTE[1] 数值类型
+	case 0, 15, 16, 17, 18, 19, 20, 21, 32, 33, 34, 39, 40, 41, 42, 43, 54, 56, 58, 59, 60, 61, 63, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 78, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 94, 96:
+		v, err := strconv.ParseUint(p.Value, 10, 8)
+		if err != nil {
+			return fmt.Errorf("param seq %d: invalid byte value %q: %v", p.Seq, p.Value, err)
+		}
+		p.ValueBytes = []byte{byte(v)}
+
+	// BYTE[4] 数值类型
+	case 2:
+		v, err := strconv.ParseUint(p.Value, 10, 32)
+		if err != nil {
+			return fmt.Errorf("param seq %d: invalid uint32 value %q: %v", p.Seq, p.Value, err)
+		}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, uint32(v))
+		p.ValueBytes = buf
+
+	// BCD[7] 类型
+	case 14, 23, 24:
+		off, err := WriteBCD(make([]byte, 7), 0, p.Value, 7)
+		if err != nil {
+			return fmt.Errorf("param seq %d: invalid BCD value %q: %v", p.Seq, p.Value, err)
+		}
+		p.ValueBytes = make([]byte, 7)
+		WriteBCD(p.ValueBytes, 0, p.Value, 7)
+		_ = off
+
+	default:
+		// 未知 seq，尝试作为 ASCII 字符串处理
+		p.ValueBytes = []byte(p.Value)
+	}
+
+	return nil
+}
+
 type ParamReportUpload struct {
 	ParamCount uint16      `json:"paramCount"`
 	ParamList  []ParamItem `json:"paramList"`
@@ -190,8 +275,33 @@ func (m *ConfigDownloadMsg) Decode(data []byte) error {
 	return nil
 }
 
-func (m *ConfigDownloadMsg) Encode() ([]byte, error) { return nil, nil } // TODO
-func (m *ConfigDownloadMsg) Validate() []types.ValidationError { return nil }
+func (m *ConfigDownloadMsg) Encode() ([]byte, error) {
+	// 0xC2 编码格式：seq(2字节LE) + valueLen(1字节) + valueBytes(valueLen字节)，逐项拼接，无 paramCount 前缀
+	var buf []byte
+	for i, item := range m.ParamList {
+		if err := item.EncodeValue(); err != nil {
+			return nil, fmt.Errorf("paramList[%d]: %v", i, err)
+		}
+		if len(item.ValueBytes) > 255 {
+			return nil, fmt.Errorf("paramList[%d]: valueBytes too long (%d bytes, max 255)", i, len(item.ValueBytes))
+		}
+		// seq(2字节LE)
+		seqBuf := make([]byte, 2)
+		binary.LittleEndian.PutUint16(seqBuf, item.Seq)
+		buf = append(buf, seqBuf...)
+		// valueLen(1字节)
+		buf = append(buf, byte(len(item.ValueBytes)))
+		// valueBytes
+		buf = append(buf, item.ValueBytes...)
+	}
+	return buf, nil
+}
+func (m *ConfigDownloadMsg) Validate() []types.ValidationError {
+	if len(m.ParamList) == 0 {
+		return []types.ValidationError{{Field: "paramList", Message: "paramList is required"}}
+	}
+	return nil
+}
 
 func (m *ConfigDownloadMsg) ToJSONMap() map[string]interface{} {
 	items := make([]map[string]interface{}, len(m.ParamList))
