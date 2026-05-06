@@ -218,7 +218,7 @@ const configPayloadDefaults: Record<string, string> = {
   '0xC2': JSON.stringify({
     paramList: [
       { seq: 6, value: "192.168.1.100" },
-      { seq: 7, value: 8888 },
+      { seq: 7, value: "8888" },
       { seq: 10, value: "192.168.0.1" },
       { seq: 11, value: "255.255.255.0" },
       { seq: 12, value: "192.168.0.1" },

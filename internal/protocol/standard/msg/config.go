@@ -1,7 +1,11 @@
 // Package msg provides 0x0C/0xC1/0xC2 configuration message definitions.
 package msg
 
-import "github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+import (
+	"encoding/json"
+
+	"github.com/yannick2025-tech/nts-gater/internal/protocol/types"
+)
 
 // ==================== 0x0C 设备参数查询 ====================
 
@@ -62,6 +66,55 @@ type ParamItem struct {
 	Seq        uint16 `json:"seq"`        // 地址序号
 	ValueBytes []byte `json:"valueBytes"` // 配置内容
 	Value      string `json:"value"`      // 可读值
+}
+
+// UnmarshalJSON 自定义反序列化：Value 字段兼容 JSON string 和 number
+// 前端 JSON payload 中 value 可能是 number（如 8888）或 string（如 "192.168.1.100"），
+// Go 的 json.Unmarshal 默认严格要求类型对应，number 无法反序列化到 string，
+// 因此这里做兼容处理：number 转为字符串，string 直接赋值。
+func (p *ParamItem) UnmarshalJSON(data []byte) error {
+	// 用辅助结构避免递归调用 UnmarshalJSON
+	type Alias struct {
+		Seq        uint16          `json:"seq"`
+		ValueBytes json.RawMessage `json:"valueBytes"`
+		Value      json.RawMessage `json:"value"`
+	}
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	p.Seq = a.Seq
+
+	// 解析 ValueBytes（可选字段）
+	if len(a.ValueBytes) > 0 {
+		_ = json.Unmarshal(a.ValueBytes, &p.ValueBytes)
+	}
+
+	// 解析 Value：兼容 string 和 number
+	if len(a.Value) == 0 {
+		p.Value = ""
+	} else {
+		// 先尝试 string
+		var s string
+		if err := json.Unmarshal(a.Value, &s); err == nil {
+			p.Value = s
+		} else {
+			// 再尝试 number（int / float）
+			var f float64
+			if err := json.Unmarshal(a.Value, &f); err == nil {
+				// 整数不加小数点，浮点数保留精度
+				if f == float64(int64(f)) {
+					p.Value = json.Number(a.Value).String()
+				} else {
+					p.Value = string(a.Value)
+				}
+			} else {
+				// 其他类型（bool 等）转为字符串
+				p.Value = string(a.Value)
+			}
+		}
+	}
+	return nil
 }
 
 type ParamReportUpload struct {
